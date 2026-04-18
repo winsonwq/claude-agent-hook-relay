@@ -222,6 +222,39 @@ interface Forwarder {
 
 TODO: 测试规范待定
 
+## 发布流程
+
+发布通过 GitHub Actions 完成，触发条件是 push tag。版本号以 `package.json` 为准。
+
+### 发版步骤
+
+```bash
+# 1. 修改 package.json 版本号
+# 例如从 0.1.3 → 0.1.4
+
+# 2. 提交修改（不触发 action）
+git add package.json
+git commit -m "chore: bump version to 0.1.4"
+git push origin main
+
+# 3. 打 tag 并推送（触发 GitHub Actions 发布）
+git tag v0.1.4
+git push --tags
+```
+
+### 注意事项
+
+- **不要手动 `npm publish`**，由 CI 自动完成
+- tag 名称格式：`v*`（如 `v0.1.4`）
+- `package.json` 版本号必须和 tag 版本一致
+- 需要在 GitHub 仓库设置中添加 `NPM_TOKEN` secret（用于发布到 npm）
+
+### 验证发布成功
+
+```bash
+npm view claude-agent-hook-relay version
+```
+
 ## 文档
 
 - `SPEC.md` - 需求规格
