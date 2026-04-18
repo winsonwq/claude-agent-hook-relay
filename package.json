@@ -1,6 +1,6 @@
 {
   "name": "claude-agent-hook-relay",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Claude Code Hook Relay - collects and forwards Claude Code Hook events",
   "type": "module",
   "main": "dist/index.js",
