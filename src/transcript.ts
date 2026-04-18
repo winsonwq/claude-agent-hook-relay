@@ -30,6 +30,15 @@ export interface TranscriptEntry {
   };
 }
 
+export interface SkillInvocation {
+  skill: string;
+  startTime: number;
+  endTime?: number;
+  durationMs?: number;
+  nestedCalls: string[];
+  toolUseId?: string;
+}
+
 export class TranscriptReader {
   static async read(transcriptPath: string): Promise<TranscriptEntry[]> {
     return new Promise((resolve, reject) => {
@@ -132,7 +141,9 @@ export class TranscriptReader {
   }
 
   /**
-   * Analyze transcript to reconstruct nested skill call chains.
+   * Analyze transcript to reconstruct skill invocations with nested call chains.
+   * 
+   * This method ONLY uses the transcript - no PreToolUse/PostToolUse hooks needed.
    *
    * Algorithm:
    * 1. Track a skill stack with pending tool counts and done status
@@ -140,26 +151,25 @@ export class TranscriptReader {
    * 3. When the NEXT tool call arrives, FIRST pop done skills from top of stack, THEN attribute
    * This correctly handles the case where a skill's script continues after one command completes.
    *
-   * Returns: Map<skillToolUseId, nestedCalls>
-   * - Key is the tool_use_id of the Skill call
-   * - Value is array of nested tool names called by that skill
+   * Returns: SkillInvocation[] with full details
    */
-  static async analyzeNestedCalls(transcriptPath: string): Promise<Map<string, string[]>> {
+  static async analyzeSkillInvocations(transcriptPath: string): Promise<SkillInvocation[]> {
     const entries = await this.read(transcriptPath);
-    const result = new Map<string, string[]>();
 
     interface SkillEntry {
       skill: string;
-      toolUseId: string;  // tool_use_id of this Skill call
+      toolUseId: string;
+      startTime: number;
       pendingTools: number;
       isDone: boolean;
     }
 
     // Build tool_use_id -> tool_use info map
-    const toolUseById = new Map<string, { name: string; skill: string | null }>();
-    for (const entry of entries) {
-      if (entry.type === 'assistant') {
-        const content = this.getMessageContent(entry);
+    const toolUseById = new Map<string, { name: string; skill: string | null; timestamp?: string }>();
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.type === 'assistant') {
+        const content = this.getMessageContent(e);
         if (content) {
           for (const item of content) {
             if (item.type === 'tool_use') {
@@ -168,7 +178,7 @@ export class TranscriptReader {
               const name = toolUse.name as string;
               const input = toolUse.input as Record<string, unknown> | undefined;
               const skillName = typeof input?.skill === 'string' ? input.skill : null;
-              toolUseById.set(id, { name, skill: skillName });
+              toolUseById.set(id, { name, skill: skillName, timestamp: e.timestamp });
             }
           }
         }
@@ -176,7 +186,9 @@ export class TranscriptReader {
     }
 
     const skillStack: SkillEntry[] = [];
-    // Map: non-skill tool_use_id -> skill tool_use_id (which Skill call owns this tool)
+    // Track all skills ever pushed (for final result)
+    const allSkills = new Map<string, SkillEntry>();
+    // Map: non-skill tool_use_id -> skill tool_use_id
     const toolOwnership = new Map<string, string>();
 
     // Pop done skills from top of stack, keeping at least one
@@ -186,9 +198,11 @@ export class TranscriptReader {
       }
     };
 
-    for (const entry of entries) {
-      if (entry.type === 'assistant') {
-        const content = this.getMessageContent(entry);
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+
+      if (e.type === 'assistant') {
+        const content = this.getMessageContent(e);
         if (!content) continue;
 
         for (const item of content) {
@@ -200,11 +214,18 @@ export class TranscriptReader {
           const skillName = typeof input?.skill === 'string' ? input.skill : null;
 
           if (toolName === 'Skill' && skillName) {
-            // Skill tool call - pop done skills first, then push
             popDoneSkills();
-            skillStack.push({ skill: skillName, toolUseId: toolId, pendingTools: 0, isDone: false });
+            const entryTime = e.timestamp ? new Date(e.timestamp).getTime() : Date.now();
+            const entry: SkillEntry = {
+              skill: skillName,
+              toolUseId: toolId,
+              startTime: entryTime,
+              pendingTools: 0,
+              isDone: false
+            };
+            skillStack.push(entry);
+            allSkills.set(toolId, entry);
           } else {
-            // Other tool - pop done skills FIRST, then attribute
             popDoneSkills();
             const ownerSkillToolUseId = skillStack.length > 0 ? skillStack[skillStack.length - 1].toolUseId : null;
             toolOwnership.set(toolId, ownerSkillToolUseId || 'NO_OWNER');
@@ -215,8 +236,8 @@ export class TranscriptReader {
         }
       }
 
-      if (entry.type === 'user') {
-        const content = this.getMessageContent(entry);
+      if (e.type === 'user') {
+        const content = this.getMessageContent(e);
         if (!content) continue;
 
         for (const item of content) {
@@ -225,11 +246,7 @@ export class TranscriptReader {
           const toolUseId = toolResult.tool_use_id as string;
           const toolUse = toolUseById.get(toolUseId);
 
-          if (toolUse?.skill) {
-            // Skill tool result - just log (Launching status is handled by the fact
-            // that we don't increment pending for skill calls)
-          } else {
-            // Non-skill tool result - decrement pending
+          if (!toolUse?.skill) {
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].pendingTools--;
               if (skillStack[skillStack.length - 1].pendingTools === 0) {
@@ -241,6 +258,23 @@ export class TranscriptReader {
       }
     }
 
+    // Build tool use timestamp map for endTime calculation
+    const toolUseTimestamp = new Map<string, number>();
+    for (const [toolId, toolUse] of toolUseById) {
+      if (toolUse.timestamp) {
+        toolUseTimestamp.set(toolId, new Date(toolUse.timestamp).getTime());
+      }
+    }
+
+    // Find the last tool result timestamp for endTime when no result exists
+    let lastTimestamp = 0;
+    for (const e of entries) {
+      if (e.type === 'user' && e.timestamp) {
+        const t = new Date(e.timestamp).getTime();
+        if (t > lastTimestamp) lastTimestamp = t;
+      }
+    }
+
     // Aggregate tool ownership by skill tool_use_id
     const ownedTools = new Map<string, string[]>();
     for (const [toolId, skillToolUseId] of toolOwnership) {
@@ -249,11 +283,18 @@ export class TranscriptReader {
       ownedTools.get(skillToolUseId)!.push(toolUse?.name || toolId);
     }
 
-    // Convert to result format (key is skill tool_use_id)
-    for (const [skillToolUseId, tools] of ownedTools) {
-      if (skillToolUseId !== 'NO_OWNER') {
-        result.set(skillToolUseId, tools);
-      }
+    // Build result from allSkills (not skillStack which has items popped)
+    const result: SkillInvocation[] = [];
+    for (const skill of allSkills.values()) {
+      const nested = ownedTools.get(skill.toolUseId) || [];
+      result.push({
+        skill: skill.skill,
+        startTime: skill.startTime,
+        endTime: lastTimestamp,
+        durationMs: lastTimestamp - skill.startTime,
+        nestedCalls: nested,
+        toolUseId: skill.toolUseId
+      });
     }
 
     return result;

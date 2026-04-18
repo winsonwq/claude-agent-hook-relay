@@ -49,12 +49,6 @@ export class HookCollector {
       };
 
       switch (eventType) {
-        case 'PreToolUse':
-          this.handlePreToolUse(session, event);
-          break;
-        case 'PostToolUse':
-          this.handlePostToolUse(session, event);
-          break;
         case 'Stop':
           await this.handleStop(session, event, body);
           break;
@@ -67,32 +61,6 @@ export class HookCollector {
 
       res.status(200).json({});
     };
-  }
-
-  private handlePreToolUse(session: ReturnType<SessionManager['getOrCreate']>, event: HookEvent): void {
-    const toolInput = event.toolInput as Record<string, unknown> | undefined;
-    const skillName = typeof toolInput?.skill === 'string' ? toolInput.skill
-      : typeof toolInput?.name === 'string' ? toolInput.name
-      : undefined;
-
-    if (event.toolName === 'Skill' && skillName) {
-      this.sessionManager.pushSkill(
-        session.sessionId,
-        skillName,
-        event.toolUseId || '',
-        event.timestamp
-      );
-    } else if (session.skillStack.length > 0) {
-      // Track nested tool calls under the current skill
-      this.sessionManager.pushNestedCall(session.sessionId, event.toolName || '');
-    }
-  }
-
-  private handlePostToolUse(session: ReturnType<SessionManager['getOrCreate']>, event: HookEvent): void {
-    if (event.toolName === 'Skill') {
-      // Pop the skill when it completes
-      this.sessionManager.popSkill(session.sessionId, event.timestamp);
-    }
   }
 
   private async handleStop(
@@ -114,7 +82,8 @@ export class HookCollector {
       costUsd: typeof costField === 'number' ? costField : 0,
     };
 
-    // Enrich with transcript-based token usage if available
+    // Analyze transcript to get skill invocations (ONLY uses transcript, no hook data)
+    let skillInvocations: Awaited<ReturnType<typeof TranscriptReader.analyzeSkillInvocations>> = [];
     if (event.transcriptPath) {
       try {
         const transcriptUsage = await TranscriptReader.getSessionUsage(event.transcriptPath);
@@ -123,15 +92,7 @@ export class HookCollector {
         modelUsage.cacheReadTokens = transcriptUsage.cacheReadTokens || modelUsage.cacheReadTokens;
         modelUsage.cacheCreationTokens = transcriptUsage.cacheCreationTokens || modelUsage.cacheCreationTokens;
 
-        // Analyze nested calls from transcript using deferred-pop algorithm
-        const nestedCallsMap = await TranscriptReader.analyzeNestedCalls(event.transcriptPath);
-        for (const skill of session.completedSkills) {
-          // Match by toolUseId (the tool_use_id of the Skill call)
-          const nested = skill.toolUseId ? nestedCallsMap.get(skill.toolUseId) : undefined;
-          if (nested && nested.length > 0) {
-            skill.nestedCalls = nested;
-          }
-        }
+        skillInvocations = await TranscriptReader.analyzeSkillInvocations(event.transcriptPath);
       } catch {
         // Ignore transcript read errors
       }
@@ -140,7 +101,7 @@ export class HookCollector {
     const payload: ForwardPayload = {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
-      skillInvocations: session.completedSkills,
+      skillInvocations,
       totalUsage: modelUsage,
       allEvents: session.events,
       sessionDuration: Date.now() - session.createdAt,
@@ -153,27 +114,26 @@ export class HookCollector {
   }
 
   private async handleSessionEnd(
-    session: ReturnType< SessionManager['getOrCreate']>,
+    session: ReturnType<SessionManager['getOrCreate']>,
     event: HookEvent,
     body: Record<string, unknown>
   ): Promise<void> {
     const body2 = body as Record<string, number | undefined | string>;
 
-    // Complete any skills still on the stack
-    const now = Date.now();
-    while (session.skillStack.length > 0) {
-      const skill = session.skillStack.pop();
-      if (skill) {
-        skill.endTime = now;
-        skill.durationMs = skill.endTime - skill.startTime;
-        session.completedSkills.push(skill);
+    // Analyze transcript to get skill invocations (ONLY uses transcript)
+    let skillInvocations: Awaited<ReturnType<typeof TranscriptReader.analyzeSkillInvocations>> = [];
+    if (event.transcriptPath) {
+      try {
+        skillInvocations = await TranscriptReader.analyzeSkillInvocations(event.transcriptPath);
+      } catch {
+        // Ignore transcript read errors
       }
     }
 
     const payload: ForwardPayload = {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
-      skillInvocations: session.completedSkills,
+      skillInvocations,
       totalUsage: {
         inputTokens: 0,
         outputTokens: 0,
