@@ -11,6 +11,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "test": "tsx scripts/test-relay.ts",
+    "test:port": "tsx scripts/test-relay.ts",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "postinstall": "node scripts/postinstall.js"
