@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "cahr": "./dist/index.js"
+    "cahr": "./dist/index.js",
+    "relay": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
