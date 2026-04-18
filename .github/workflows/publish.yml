@@ -5,10 +5,6 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: read
-  actions: read
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -20,33 +16,11 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
-        run: |
-          echo "=== npm whoami ==="
-          npm whoami 2>&1 || echo "not logged in"
-          echo "=== npm install --ignore-scripts ==="
-          npm install --ignore-scripts 2>&1
-          echo "=== exit: $? ==="
-
-      - name: Build TypeScript
+      - run: npm install --ignore-scripts
         continue-on-error: true
-        run: |
-          echo "=== node version ==="
-          node --version
-          echo "=== tsc version ==="
-          ./node_modules/.bin/tsc --version 2>&1 || echo "tsc not found in .bin"
-          echo "=== ls node_modules/.bin ==="
-          ls -la node_modules/.bin/ 2>/dev/null | head -20 || echo "no .bin"
-          echo "=== building ==="
-          ./node_modules/.bin/tsc 2>&1
-          EXIT=$?
-          echo "=== exit code: $EXIT ==="
-          exit $EXIT
 
-      - name: Show version from package.json
-        run: echo "Publishing version $(node -p \"require('./package.json').version\")"
+      - run: npm run build || ./node_modules/.bin/tsc
 
-      - name: Publish to npm
-        run: npm publish --access public
+      - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
