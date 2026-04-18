@@ -51,10 +51,72 @@ All without modifying Claude Code or the SDK.
 
 ## Installation
 
+### From npm (recommended for end users)
+
+```bash
+npm install -g claude-agent-hook-relay
+```
+
+This installs the `relay` CLI globally.
+
+### From source (for developers)
+
 ```bash
 npm install
-npm run build   # required for npm run test (dist/index.js)
+npm run build
 ```
+
+## Install & Verify
+
+After installing from npm, follow these steps to verify the relay works:
+
+**Step 1: Initialize Claude Code hooks**
+
+```bash
+relay init
+```
+
+This adds the required hook configuration to `~/.claude/settings.json`, pointing hooks to `http://localhost:8080`. If you prefer to configure manually, see [Quick Start → Configure Claude Code](#2-configure-claude-code).
+
+**Step 2: Start the relay**
+
+```bash
+relay start
+```
+
+By default the relay listens on port 8080. To use a different port:
+
+```bash
+relay start 9000
+```
+
+**Step 3: Verify with Claude Code**
+
+In another terminal, run a prompt that triggers tool usage:
+
+```bash
+claude -p "List all files in /tmp using Bash"
+```
+
+Then check the relay terminal — you should see output like:
+
+```
+[Relay] {"sessionId":"...","sourceId":"...","skillCount":0,"skillList":[]}
+```
+
+> **Note:** The relay captures hook events sent by Claude Code. Any prompt that causes Claude Code to call tools (Bash, Read, Edit, etc.) will generate relay output. The `skillCount` field shows how many Skill invocations occurred in the session (0 if only direct tool calls were made).
+
+To verify Skill tracking specifically, use a prompt that calls a known Skill. For example, if you have the OpenClaw `weather` skill installed and configured in Claude Code, try:
+
+```bash
+claude -p "What's the weather in Shanghai?"
+```
+
+You should see `skillCount: 1` with the skill name in `skillList`.
+
+**Step 4: Stop the relay**
+
+Press Ctrl+C in the relay terminal, or kill the process. There is no `relay stop` command (the relay is a long-running server process).
 
 ## Quick Start
 
