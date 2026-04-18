@@ -51,16 +51,13 @@ All without modifying Claude Code or the SDK.
 
 ## Installation
 
-### From npm (recommended for end users)
-
+**From npm (end users):**
 ```bash
 npm install -g claude-agent-hook-relay
 ```
+Hooks are auto-configured by the postinstall script.
 
-This installs the `relay` CLI globally.
-
-### From source (for developers)
-
+**From source (developers):**
 ```bash
 npm install
 npm run build
@@ -68,17 +65,9 @@ npm run build
 
 ## Install & Verify
 
-After installing from npm, follow these steps to verify the relay works:
+After installing from npm, Claude Code hooks are **auto-configured** by the postinstall script. Follow these steps:
 
-**Step 1: Initialize Claude Code hooks**
-
-```bash
-relay init
-```
-
-This adds the required hook configuration to `~/.claude/settings.json`, pointing hooks to `http://localhost:8080`. If you prefer to configure manually, see [Quick Start → Configure Claude Code](#2-configure-claude-code).
-
-**Step 2: Start the relay**
+**Step 1: Start the relay**
 
 ```bash
 relay start
@@ -90,7 +79,7 @@ By default the relay listens on port 8080. To use a different port:
 relay start 9000
 ```
 
-**Step 3: Verify with Claude Code**
+**Step 2: Verify with Claude Code**
 
 In another terminal, run a prompt that triggers tool usage:
 
@@ -104,19 +93,11 @@ Then check the relay terminal — you should see output like:
 [Relay] {"sessionId":"...","sourceId":"...","skillCount":0,"skillList":[]}
 ```
 
-> **Note:** The relay captures hook events sent by Claude Code. Any prompt that causes Claude Code to call tools (Bash, Read, Edit, etc.) will generate relay output. The `skillCount` field shows how many Skill invocations occurred in the session (0 if only direct tool calls were made).
+> **Note:** `skillCount: 0` means no Skill invocations occurred — Claude Code called tools (Bash) directly. This confirms the relay is receiving hook events correctly.
 
-To verify Skill tracking specifically, use a prompt that calls a known Skill. For example, if you have the OpenClaw `weather` skill installed and configured in Claude Code, try:
+**Step 3: Stop the relay**
 
-```bash
-claude -p "What's the weather in Shanghai?"
-```
-
-You should see `skillCount: 1` with the skill name in `skillList`.
-
-**Step 4: Stop the relay**
-
-Press Ctrl+C in the relay terminal, or kill the process. There is no `relay stop` command (the relay is a long-running server process).
+Press Ctrl+C in the relay terminal.
 
 ---
 
@@ -125,20 +106,30 @@ Press Ctrl+C in the relay terminal, or kill the process. There is no `relay stop
 ```bash
 relay --version          # Check installation
 relay status            # Show hook installation status
+relay start [port]      # Start relay (default port: 8080)
 relay uninstall         # Remove hooks from Claude Code
 ```
 
-## Quick Start
+## For Developers
 
-### 1. Start the relay server
+### Local setup
 
 ```bash
-npm run dev
+git clone <repo-url>
+cd claude-agent-hook-relay
+npm install
+npm run build
 ```
 
-Server starts at `http://localhost:8080`
+### Run relay locally
 
-### 2. Configure Claude Code
+```bash
+npm run dev          # watch mode with tsx
+npm run build       # compile TypeScript
+npm start           # run compiled dist/index.js
+```
+
+### Configure Claude Code hooks manually
 
 Add to `~/.claude/settings.json`:
 
@@ -150,9 +141,7 @@ Add to `~/.claude/settings.json`:
       "hooks": [{
         "type": "http",
         "url": "http://localhost:8080/hook/pre-tool-use",
-        "headers": {
-          "X-Source-ID": "my-workstation"
-        }
+        "headers": { "X-Source-ID": "my-workstation" }
       }]
     }],
     "PostToolUse": [{
@@ -160,9 +149,7 @@ Add to `~/.claude/settings.json`:
       "hooks": [{
         "type": "http",
         "url": "http://localhost:8080/hook/post-tool-use",
-        "headers": {
-          "X-Source-ID": "my-workstation"
-        }
+        "headers": { "X-Source-ID": "my-workstation" }
       }]
     }],
     "Stop": [{
@@ -170,81 +157,48 @@ Add to `~/.claude/settings.json`:
       "hooks": [{
         "type": "http",
         "url": "http://localhost:8080/hook/stop",
-        "headers": {
-          "X-Source-ID": "my-workstation"
-        }
+        "headers": { "X-Source-ID": "my-workstation" }
+      }]
+    }],
+    "SessionEnd": [{
+      "matcher": "*",
+      "hooks": [{
+        "type": "http",
+        "url": "http://localhost:8080/hook/session-end",
+        "headers": { "X-Source-ID": "my-workstation" }
       }]
     }]
   }
 }
 ```
 
-### 3. View output
+### Run tests
 
-When a session ends, the relay outputs:
+```bash
+npm run test              # start relay + run test suite + stop relay
+npm run test:port 8080   # test against a running relay on port 8080
+```
+
+The test suite sends realistic hook event sequences (no-skill, single-skill, nested-skill, session-end) and verifies the relay's skill tracking and aggregation logic.
+
+### View relay output
+
+When a session ends, the relay prints a summary:
 
 ```json
 {
   "sessionId": "abc-123",
   "sourceId": "my-workstation",
-  "skillInvocations": [
-    {
-      "skill": "batch",
-      "startTime": 1713345600000,
-      "endTime": 1713345610000,
-      "durationMs": 10000,
-      "nestedCalls": ["Bash", "Edit"]
-    }
-  ],
+  "skillCount": 1,
+  "skillList": [{"skill": "batch", "durationMs": 500, "nestedCalls": ["Bash", "Read"]}],
   "totalUsage": {
-    "inputTokens": 5000,
-    "outputTokens": 300,
-    "cacheReadTokens": 20000,
-    "cacheCreationTokens": 1000,
+    "inputTokens": 5000, "outputTokens": 300,
+    "cacheReadTokens": 20000, "cacheCreationTokens": 1000,
     "costUsd": 0.05
   },
   "sessionDuration": 30000,
   "stopReason": "end_turn"
 }
-```
-
-## Testing
-
-After installing and building, run the integration test to verify relay works end-to-end:
-
-```bash
-npm run build
-npm run test
-```
-
-The test sends realistic hook event sequences to the relay and prints the aggregated session summaries:
-
-```
-══════════════════════════════════════════════════════════════════════
- Claude Agent Hook Relay - Integration Test Suite
-══════════════════════════════════════════════════════════════════════
-
-🧪 Test: Session with no Skill calls (Bash + Read only)
-[Relay] {"sessionId":"no-skill-...","skillCount":0,"skillList":[]}
-
-🧪 Test: Single Skill with nested tool calls
-[Relay] {"sessionId":"single-skill-...","skillCount":1,"skillList":[{"skill":"batch","nestedCalls":["Bash","Read"]}]}
-
-🧪 Test: Nested Skill calls
-[Relay] {"sessionId":"nested-skill-...","skillCount":2,"skillList":[...]}
-
-🧪 Test: SessionEnd event
-[Relay] {"sessionId":"session-end-...","skillCount":1,...}
-
-✅ All tests sent. Check [Relay] output above for session summaries.
-```
-
-**What is being tested?** The test simulates Claude Code hook event sequences — it does **not** require real Skills to exist. The relay tracks tool invocations by observing `PreToolUse`/`PostToolUse` events; skill names like `"batch"` or `"weather"` are arbitrary strings and don't need to correspond to actual installed Skills.
-
-To test against a running relay on a specific port:
-
-```bash
-npm run test:port 8080
 ```
 
 ## Claude Code Observability: HTTP Hook vs OpenTelemetry
