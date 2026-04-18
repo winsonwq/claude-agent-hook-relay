@@ -20,7 +20,13 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm install 2>&1
+      - name: Install dependencies
+        run: |
+          echo "=== npm whoami ==="
+          npm whoami 2>&1 || echo "not logged in"
+          echo "=== npm install ==="
+          npm install 2>&1
+          echo "=== exit: $? ==="
 
       - name: Build TypeScript
         continue-on-error: true
