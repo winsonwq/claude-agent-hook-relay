@@ -17,7 +17,14 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm install || cat ~/.npm/_logs/*.log 2>/dev/null || echo "no npm logs"
-      - run: npm run build 2>&1
+      - name: Build TypeScript
+        run: |
+          echo "=== tsc version ==="
+          npx tsc --version
+          echo "=== building ==="
+          npx tsc
+          echo "=== dist contents ==="
+          ls -la dist/
 
       - name: Show version from package.json
         run: echo "Publishing version $(node -p \"require('./package.json').version\")"
