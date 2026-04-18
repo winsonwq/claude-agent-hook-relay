@@ -19,12 +19,16 @@ jobs:
       - run: npm install || cat ~/.npm/_logs/*.log 2>/dev/null || echo "no npm logs"
       - name: Build TypeScript
         run: |
+          echo "=== node version ==="
+          node --version
           echo "=== tsc version ==="
-          npx tsc --version
+          ./node_modules/.bin/tsc --version || npx tsc --version
+          echo "=== ls node_modules/.bin ==="
+          ls node_modules/.bin/ 2>/dev/null | head -20
           echo "=== building ==="
-          npx tsc
-          echo "=== dist contents ==="
-          ls -la dist/
+          ./node_modules/.bin/tsc 2>&1
+          echo "=== exit code ==="
+          echo $?
 
       - name: Show version from package.json
         run: echo "Publishing version $(node -p \"require('./package.json').version\")"
