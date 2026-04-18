@@ -24,8 +24,8 @@ jobs:
         run: |
           echo "=== npm whoami ==="
           npm whoami 2>&1 || echo "not logged in"
-          echo "=== npm install ==="
-          npm install 2>&1
+          echo "=== npm install --ignore-scripts ==="
+          npm install --ignore-scripts 2>&1
           echo "=== exit: $? ==="
 
       - name: Build TypeScript
