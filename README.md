@@ -19,7 +19,7 @@
 | 分散的 Hook 脚本 | 难以管理，分散在各处 |
 | **relay** | 集中管理，灵活可扩展 |
 
-### relay 不是
+### cahr 不是
 
 - **不是日志系统** —— 它只做收集和转发，存储由外部处理
 - **不是决策引擎** —— A/B 测试和业务逻辑属于 Skill 平台
@@ -58,9 +58,9 @@ npm run build
 
 ## 安装后验证
 
-安装完成后，按以下步骤验证 relay 是否正常工作：
+安装完成后，按以下步骤验证 cahr 是否正常工作：
 
-**第一步：启动 relay**
+**第一步：启动 cahr**
 
 ```bash
 relay start
@@ -94,9 +94,9 @@ claude -p "列出 /tmp 目录下的所有文件"
 claude -p "run nested-test-skill"
 ```
 
-**第四步：查看 relay 输出**
+**第四步：查看 cahr 输出**
 
-回到 relay 终端，应该能看到类似这样的输出：
+回到 cahr 终端，应该能看到类似这样的输出：
 
 ```
 # 基础验证（只有工具调用）：
@@ -113,7 +113,7 @@ claude -p "run nested-test-skill"
 
 **第五步：停止 relay**
 
-在 relay 终端按 `Ctrl+C`。
+在 cahr 终端按 `Ctrl+C`。
 
 ---
 
@@ -122,7 +122,7 @@ claude -p "run nested-test-skill"
 ```bash
 relay --version             # 查看版本，确认安装成功
 relay status                # 查看 Hook 安装状态
-relay start [端口]          # 启动 relay
+relay start [端口]          # 启动 cahr
 relay install-test-skill    # 安装测试 Skill（用于验证嵌套 Skill 追踪）
 relay uninstall            # 移除 Claude Code 中的 Hook 配置
 ```
@@ -186,13 +186,13 @@ npm run build
 ### 运行测试
 
 ```bash
-npm run test              # 启动 relay → 运行测试 → 停止 relay
+npm run test              # 启动 cahr → 运行测试 → 停止 relay
 npm run test:port 8080   # 连接已有 relay（指定端口）运行测试
 ```
 
-测试会发送 4 种 Hook 事件序列（无 Skill、单 Skill、嵌套 Skill、SessionEnd），验证 relay 的 Skill 追踪和聚合逻辑是否正确。测试不依赖真实的 Skill，skill 名称是测试用的模拟字符串。
+测试会发送 4 种 Hook 事件序列（无 Skill、单 Skill、嵌套 Skill、SessionEnd），验证 cahr 的 Skill 追踪和聚合逻辑是否正确。测试不依赖真实的 Skill，skill 名称是测试用的模拟字符串。
 
-### relay 输出示例
+### cahr 输出示例
 
 Session 结束时，relay 会打印汇总：
 

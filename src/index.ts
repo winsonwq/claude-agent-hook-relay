@@ -175,9 +175,9 @@ async function cmdInstallTestSkill(): Promise<void> {
     copyDir(skillSrc, skillDest);
     process.stdout.write(`Test skill installed to: ${skillDest}\n`);
     process.stdout.write('\nUsage:\n');
-    process.stdout.write('  1. Start relay: relay start\n');
+    process.stdout.write('  1. Start cahr: cahr start\n');
     process.stdout.write('  2. Run: claude -p "run nested-test-skill"\n');
-    process.stdout.write('  3. Check relay output for nested skill tracking\n');
+    process.stdout.write('  3. Check cahr output for nested skill tracking\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Error installing skill: ${msg}\n`);
@@ -186,14 +186,14 @@ async function cmdInstallTestSkill(): Promise<void> {
 }
 
 async function cmdHelp(): Promise<void> {
-  process.stdout.write(`Usage: relay <command> [options]
+  process.stdout.write(`Usage: cahr <command> [options]
 
 Commands:
-  relay start [port]          Start the relay server (default port: 8080)
-  relay init [--url]          Install Claude Code hooks pointing to relay URL
-  relay uninstall              Remove Claude Code hooks
-  relay status                 Show hook installation status
-  relay install-test-skill    Install test skill for verifying nested Skill tracking
+  cahr start [port]          Start the relay server (default port: 8080)
+  cahr init [--url]          Install Claude Code hooks pointing to relay URL
+  cahr uninstall              Remove Claude Code hooks
+  cahr status                 Show hook installation status
+  cahr install-test-skill    Install test skill for verifying nested Skill tracking
 
 Options:
   --url, -u <url>       Relay URL for init command (default: http://localhost:8080)
@@ -236,6 +236,6 @@ switch (command) {
     break;
   default:
     process.stderr.write(`Unknown command: ${command}\n`);
-    process.stderr.write(`Run 'relay --help' for usage\n`);
+    process.stderr.write(`Run 'cahr --help' for usage\n`);
     process.exit(1);
 }

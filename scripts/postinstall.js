@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // postinstall script - runs after npm install -g
-// Auto-installs Claude Code hooks pointing to relay URL
+// Auto-installs Claude Code hooks pointing to cahr URL
 
 import { execSync } from 'child_process';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
@@ -54,7 +54,7 @@ function makeHookUrl(event) {
 async function main() {
   if (!isClaudeCodeInstalled()) {
     console.log('\n Claude Code not detected - skipping auto-install.');
-    console.log('  After installing Claude Code, run: relay init\n');
+    console.log('  After installing Claude Code, run: cahr init\n');
     return;
   }
 
@@ -85,7 +85,7 @@ async function main() {
       // ignore
     }
     console.log(`\n Claude Code hooks auto-installed (${addedCount} events) -> ${RELAY_URL}`);
-    console.log('  Start relay: relay start\n');
+    console.log('  Start cahr: relay start\n');
   } else {
     console.log('\n Claude Code hooks already configured.\n');
   }
