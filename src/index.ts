@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import express from 'express';
 import { parseArgs } from 'util';
 import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs';
