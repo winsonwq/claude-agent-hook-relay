@@ -1,0 +1,3 @@
+This is an example file read by the nested-test-skill to demonstrate nested Read tool calls.
+
+Current timestamp for verification: dynamically read at runtime.

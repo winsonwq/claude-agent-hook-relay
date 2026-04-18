@@ -72,25 +72,46 @@ relay start
 relay start 9000
 ```
 
-**第二步：用 Claude Code 触发一个工具调用**
+**第二步（可选）：安装测试 Skill**
+
+如果你想验证 Skill 嵌套追踪功能，可以安装一个测试 Skill：
+
+```bash
+relay install-test-skill
+```
+
+这会把 `nested-test-skill` 安装到 `~/.claude/skills/`。
+
+**第三步：用 Claude Code 触发工具调用**
 
 在另一个终端运行：
 
 ```bash
+# 基础验证：触发 Bash 工具
 claude -p "列出 /tmp 目录下的所有文件"
+
+# Skill 追踪验证（如果安装了测试 Skill）：
+claude -p "run nested-test-skill"
 ```
 
-**第三步：查看 relay 输出**
+**第四步：查看 relay 输出**
 
 回到 relay 终端，应该能看到类似这样的输出：
 
 ```
-[Relay] {"sessionId":"...","sourceId":"...","skillCount":0,"skillList":[]}
+# 基础验证（只有工具调用）：
+[Relay] {"sessionId":"...","skillCount":0,"skillList":[]}
+
+# Skill 追踪验证（嵌套 Skill）：
+[Relay] {"sessionId":"...","skillCount":2,"skillList":[
+  {"skill":"weather-checker","nestedCalls":["Bash"]},
+  {"skill":"nested-test-skill","nestedCalls":["Skill","Bash","Read"]}
+]}
 ```
 
-`skillCount: 0` 表示这个 session 中没有触发 Skill 调用（只有 Bash 工具）。这已经说明 relay 正常收到了 Claude Code 发来的 Hook 事件。
+`skillCount` 大于 0 表示有 Skill 调用发生。嵌套的 Skill 会显示在 `nestedCalls` 中。
 
-**第四步：停止 relay**
+**第五步：停止 relay**
 
 在 relay 终端按 `Ctrl+C`。
 
@@ -99,10 +120,11 @@ claude -p "列出 /tmp 目录下的所有文件"
 **其他常用命令**
 
 ```bash
-relay --version          # 查看版本，确认安装成功
-relay status             # 查看 Hook 安装状态
-relay start [端口]       # 启动 relay
-relay uninstall         # 移除 Claude Code 中的 Hook 配置
+relay --version             # 查看版本，确认安装成功
+relay status                # 查看 Hook 安装状态
+relay start [端口]          # 启动 relay
+relay install-test-skill    # 安装测试 Skill（用于验证嵌套 Skill 追踪）
+relay uninstall            # 移除 Claude Code 中的 Hook 配置
 ```
 
 ---

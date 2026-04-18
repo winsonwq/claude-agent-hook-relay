@@ -1,8 +1,9 @@
 import express from 'express';
 import { parseArgs } from 'util';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { homedir } from 'os';
 import { SessionManager } from './session.js';
 import { HookCollector } from './collector.js';
 import { ConsoleForwarder, HttpForwarder, CompositeForwarder } from './forwarder.js';
@@ -143,14 +144,56 @@ async function cmdStatus(): Promise<void> {
   }
 }
 
+function copyDir(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  const entries = readdirSync(src);
+  for (const entry of entries) {
+    const srcPath = join(src, entry);
+    const destPath = join(dest, entry);
+    if (statSync(srcPath).isDirectory()) {
+      copyDir(srcPath, destPath);
+    } else {
+      copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+async function cmdInstallTestSkill(): Promise<void> {
+  const relayDir = dirname(fileURLToPath(import.meta.url));
+  const skillSrc = join(relayDir, '..', 'skills', 'nested-test-skill');
+
+  if (!existsSync(skillSrc)) {
+    process.stderr.write('Error: test skill not found in package\n');
+    process.exit(1);
+  }
+
+  const skillsDir = join(homedir(), '.claude', 'skills');
+  const skillDest = join(skillsDir, 'nested-test-skill');
+
+  try {
+    mkdirSync(skillsDir, { recursive: true });
+    copyDir(skillSrc, skillDest);
+    process.stdout.write(`Test skill installed to: ${skillDest}\n`);
+    process.stdout.write('\nUsage:\n');
+    process.stdout.write('  1. Start relay: relay start\n');
+    process.stdout.write('  2. Run: claude -p "run nested-test-skill"\n');
+    process.stdout.write('  3. Check relay output for nested skill tracking\n');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`Error installing skill: ${msg}\n`);
+    process.exit(1);
+  }
+}
+
 async function cmdHelp(): Promise<void> {
   process.stdout.write(`Usage: relay <command> [options]
 
 Commands:
-  relay start [port]    Start the relay server (default port: 8080)
-  relay init [--url]    Install Claude Code hooks pointing to relay URL
-  relay uninstall        Remove Claude Code hooks
-  relay status           Show hook installation status
+  relay start [port]          Start the relay server (default port: 8080)
+  relay init [--url]          Install Claude Code hooks pointing to relay URL
+  relay uninstall              Remove Claude Code hooks
+  relay status                 Show hook installation status
+  relay install-test-skill    Install test skill for verifying nested Skill tracking
 
 Options:
   --url, -u <url>       Relay URL for init command (default: http://localhost:8080)
@@ -177,6 +220,9 @@ switch (command) {
     break;
   case 'status':
     await cmdStatus();
+    break;
+  case 'install-test-skill':
+    await cmdInstallTestSkill();
     break;
   case 'version':
   case '--version':
