@@ -173,20 +173,25 @@ function copyDir(src: string, dest: string): void {
 
 async function cmdInstallTestSkill(): Promise<void> {
   const relayDir = dirname(fileURLToPath(import.meta.url));
-  const skillSrc = join(relayDir, '..', 'skills', 'nested-test-skill');
-
-  if (!existsSync(skillSrc)) {
-    process.stderr.write('Error: test skill not found in package\n');
-    process.exit(1);
-  }
-
   const skillsDir = join(homedir(), '.claude', 'skills');
-  const skillDest = join(skillsDir, 'nested-test-skill');
+
+  // Install both skills: nested-test-skill and weather-checker
+  const skillsToInstall = ['nested-test-skill', 'weather-checker'];
 
   try {
     mkdirSync(skillsDir, { recursive: true });
-    copyDir(skillSrc, skillDest);
-    process.stdout.write(`Test skill installed to: ${skillDest}\n`);
+
+    for (const skillName of skillsToInstall) {
+      const skillSrc = join(relayDir, '..', 'skills', skillName);
+      if (!existsSync(skillSrc)) {
+        process.stderr.write(`Error: skill '${skillName}' not found in package\n`);
+        process.exit(1);
+      }
+      const skillDest = join(skillsDir, skillName);
+      copyDir(skillSrc, skillDest);
+      process.stdout.write(`Installed: ${skillDest}\n`);
+    }
+
     process.stdout.write('\nUsage:\n');
     process.stdout.write('  1. Start cahr: cahr start\n');
     process.stdout.write('  2. Run: claude -p "run nested-test-skill"\n');
@@ -207,7 +212,7 @@ Commands:
   cahr init [--url]          Install Claude Code hooks pointing to relay URL
   cahr uninstall              Remove Claude Code hooks
   cahr status                 Show hook installation status
-  cahr install-test-skill    Install test skill for verifying nested Skill tracking
+  cahr install-test-skill    Install test skills (nested-test-skill + weather-checker)
 
 Options:
   --url, -u <url>       Relay URL for init command (default: http://localhost:8080)

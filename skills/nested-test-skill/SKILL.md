@@ -6,38 +6,38 @@ A test skill for verifying claude-agent-hook-relay's nested Skill tracking.
 
 This skill demonstrates a **nested Skill call chain**:
 
-1. Calls the `weather-checker` sub-skill (nested Skill)
-   - `weather-checker` internally calls Bash to get the current time
-2. After the nested skill returns, calls Bash to list the current directory
-3. Calls Read to read a file
+1. First, call the `Skill` tool to invoke `weather-checker` (the sub-skill)
+2. After the sub-skill returns, call Bash with `date`
+3. Call Read to read `example.txt`
 
-This creates a trace like:
+## Steps
 
-```
-Skill "nested-test-skill"
-  └── Skill "weather-checker"
-        └── Bash "date"
-  └── Bash "ls -la"
-  └── Read "example.txt"
-```
+Follow these steps exactly:
 
-## Usage
-
-After installing with `relay install-test-skill`, trigger it with:
+**Step 1:** Use the Skill tool to call `weather-checker`
 
 ```
-claude -p "run the nested-test-skill"
+Tool: Skill
+Input: {"skill": "weather-checker"}
 ```
 
-Or interactively:
+**Step 2:** After step 1 completes, use the Bash tool:
 
 ```
-/nested-test-skill
+Tool: Bash
+Input: {"command": "date"}
+```
+
+**Step 3:** After step 2 completes, use the Read tool:
+
+```
+Tool: Read
+Input: {"filePath": "~/.claude/skills/nested-test-skill/example.txt"}
 ```
 
 ## Verification
 
-After running, check the relay terminal output — you should see:
+After running, check the cahr terminal output — you should see:
 
 ```
 skillCount: 2
@@ -52,5 +52,4 @@ This confirms nested Skill tracking is working correctly.
 ## Files
 
 - `SKILL.md` — this file
-- `scripts/weather-checker/SKILL.md` — the nested sub-skill
-- `scripts/example.txt` — a file for the Read tool to read
+- `example.txt` — a file for the Read tool to read

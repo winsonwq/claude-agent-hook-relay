@@ -95,7 +95,7 @@ cahr start 9000
 cahr install-test-skill
 ```
 
-这会把 `nested-test-skill` 安装到 `~/.claude/skills/`。
+这会把两个测试 Skill（`nested-test-skill` 和 `weather-checker`）安装到 `~/.claude/skills/`。
 
 **第三步：用 Claude Code 触发工具调用**
 
@@ -120,7 +120,7 @@ claude -p "run nested-test-skill"
 # Skill 追踪验证（嵌套 Skill）：
 [Relay] {"sessionId":"...","skillCount":2,"skillList":[
   {"skill":"weather-checker","nestedCalls":["Bash"]},
-  {"skill":"nested-test-skill","nestedCalls":["Skill","Bash","Read"]}
+  {"skill":"nested-test-skill","nestedCalls":["Bash","Read","Read"]}
 ]}
 ```
 
