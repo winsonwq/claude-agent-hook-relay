@@ -53,6 +53,7 @@ All without modifying Claude Code or the SDK.
 
 ```bash
 npm install
+npm run build   # required for npm run test (dist/index.js)
 ```
 
 ## Quick Start
@@ -133,6 +134,45 @@ When a session ends, the relay outputs:
   "sessionDuration": 30000,
   "stopReason": "end_turn"
 }
+```
+
+## Testing
+
+After installing and building, run the integration test to verify relay works end-to-end:
+
+```bash
+npm run build
+npm run test
+```
+
+The test sends realistic hook event sequences to the relay and prints the aggregated session summaries:
+
+```
+══════════════════════════════════════════════════════════════════════
+ Claude Agent Hook Relay - Integration Test Suite
+══════════════════════════════════════════════════════════════════════
+
+🧪 Test: Session with no Skill calls (Bash + Read only)
+[Relay] {"sessionId":"no-skill-...","skillCount":0,"skillList":[]}
+
+🧪 Test: Single Skill with nested tool calls
+[Relay] {"sessionId":"single-skill-...","skillCount":1,"skillList":[{"skill":"batch","nestedCalls":["Bash","Read"]}]}
+
+🧪 Test: Nested Skill calls
+[Relay] {"sessionId":"nested-skill-...","skillCount":2,"skillList":[...]}
+
+🧪 Test: SessionEnd event
+[Relay] {"sessionId":"session-end-...","skillCount":1,...}
+
+✅ All tests sent. Check [Relay] output above for session summaries.
+```
+
+**What is being tested?** The test simulates Claude Code hook event sequences — it does **not** require real Skills to exist. The relay tracks tool invocations by observing `PreToolUse`/`PostToolUse` events; skill names like `"batch"` or `"weather"` are arbitrary strings and don't need to correspond to actual installed Skills.
+
+To test against a running relay on a specific port:
+
+```bash
+npm run test:port 8080
 ```
 
 ## Claude Code Observability: HTTP Hook vs OpenTelemetry
