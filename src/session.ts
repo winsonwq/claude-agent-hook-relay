@@ -1,4 +1,4 @@
-import type { Session, HookEvent } from './types.js';
+import type { Session, SkillInvocation, HookEvent } from './types.js';
 
 export class SessionManager {
   private sessions = new Map<string, Session>();
@@ -23,6 +23,39 @@ export class SessionManager {
 
   get(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  pushSkill(sessionId: string, skill: string, toolUseId: string, timestamp: number): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const invocation: SkillInvocation = {
+      skill,
+      startTime: timestamp,
+      nestedCalls: [],
+      toolUseId,
+    };
+    session.skillStack.push(invocation);
+  }
+
+  popSkill(sessionId: string, timestamp: number): SkillInvocation | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+
+    const skill = session.skillStack.pop();
+    if (skill) {
+      skill.endTime = timestamp;
+      skill.durationMs = skill.endTime - skill.startTime;
+      session.completedSkills.push(skill);
+    }
+    return skill;
+  }
+
+  pushNestedCall(sessionId: string, toolName: string): void {
+    const session = this.sessions.get(sessionId);
+    const currentSkill = session?.skillStack[session.skillStack.length - 1];
+    if (!currentSkill) return;
+    currentSkill.nestedCalls.push(toolName);
   }
 
   addEvent(sessionId: string, event: HookEvent): void {
