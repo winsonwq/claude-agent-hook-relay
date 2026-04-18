@@ -46,7 +46,7 @@
 - [x] **npm install -g 后自动安装 Hooks**
   - postinstall 脚本检测 Claude Code 是否安装
   - 已安装 → 自动写入 hooks 配置 → `claude config reload`
-  - 未安装 → 跳过（提示用户稍后运行 `relay init`）
+  - 未安装 → 跳过（提示用户稍后运行 `cahr init`）
 - [x] **relay init 命令**（Claude Code 后装时手动初始化）
   - 检测 Claude Code 安装状态
   - 写入 hooks 配置到 `~/.claude/settings.json`
@@ -58,10 +58,10 @@
 
 #### CLI 命令
 ```
-relay start     # 启动 relay 服务（默认 8080）
-relay init      # 初始化 Claude Code hooks
-relay uninstall # 移除 Claude Code hooks 配置
-relay status    # 查看 relay 状态
+cahr start     # 启动 cahr 服务（默认 8080）
+cahr init      # 初始化 Claude Code hooks
+cahr uninstall # 移除 Claude Code hooks 配置
+cahr status    # 查看 cahr 状态
 ```
 
 ### Phase 2 - 增强分析（规划中）
@@ -211,12 +211,12 @@ async function findAvailablePort(startPort: number = DEFAULT_PORT): Promise<numb
 ### 启动输出示例
 
 ```bash
-$ relay start
+$ cahr start
 
 claude-agent-hook-relay v0.1.0
 Listening on http://localhost:8080
 
-$ relay start
+$ cahr start
 
 claude-agent-hook-relay v0.1.0
 ⚠️  Port 8080 was in use, using 8081
@@ -364,7 +364,7 @@ interface SessionReport {
 
 ## 可观测性维度
 
-| 维度 | relay 能提供 |
+| 维度 | cahr 能提供 |
 |------|-------------|
 | **Logs** | ✅ 所有 Hook 事件原始记录 |
 | **Metrics** | ✅ Usage、调用次数、耗时统计 |
