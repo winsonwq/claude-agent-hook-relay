@@ -11,13 +11,13 @@
 | **多终端 Hook 汇聚** | 多个 Claude Code 实例的 Hook 事件统一收集，无需在每个终端单独配置 |
 | **Skill 调用链追踪** | 追踪哪个 Skill 调用了哪些工具，包括嵌套深度 —— 这是原生 OTel **做不到** 的 |
 
-### 为什么用 relay 而不是 SDK 或 Hook 脚本？
+### 为什么用 cahr 而不是 SDK 或 Hook 脚本？
 
 | 方案 | 问题 |
 |------|------|
 | SDK 硬编码 | 耦合紧，升级困难 |
 | 分散的 Hook 脚本 | 难以管理，分散在各处 |
-| **relay** | 集中管理，灵活可扩展 |
+| **cahr** | 集中管理，灵活可扩展 |
 
 ### cahr 不是
 
@@ -43,7 +43,7 @@
 npm install -g claude-agent-hook-relay
 ```
 
-安装后，postinstall 脚本会自动在 `~/.claude/settings.json` 中配置好 Hook指向 `http://localhost:8080`。
+安装后，postinstall 脚本会自动在 `~/.claude/settings.json` 中配置好 Hook 指向 `http://localhost:8080`。
 
 **方式二：从源码安装（适合开发者）**
 
@@ -63,13 +63,13 @@ npm run build
 **第一步：启动 cahr**
 
 ```bash
-relay start
+cahr start
 ```
 
 默认监听端口 8080。如需更换端口：
 
 ```bash
-relay start 9000
+cahr start 9000
 ```
 
 **第二步（可选）：安装测试 Skill**
@@ -77,7 +77,7 @@ relay start 9000
 如果你想验证 Skill 嵌套追踪功能，可以安装一个测试 Skill：
 
 ```bash
-relay install-test-skill
+cahr install-test-skill
 ```
 
 这会把 `nested-test-skill` 安装到 `~/.claude/skills/`。
@@ -111,7 +111,7 @@ claude -p "run nested-test-skill"
 
 `skillCount` 大于 0 表示有 Skill 调用发生。嵌套的 Skill 会显示在 `nestedCalls` 中。
 
-**第五步：停止 relay**
+**第五步：停止 cahr**
 
 在 cahr 终端按 `Ctrl+C`。
 
@@ -120,12 +120,14 @@ claude -p "run nested-test-skill"
 **其他常用命令**
 
 ```bash
-relay --version             # 查看版本，确认安装成功
-relay status                # 查看 Hook 安装状态
-relay start [端口]          # 启动 cahr
-relay install-test-skill    # 安装测试 Skill（用于验证嵌套 Skill 追踪）
-relay uninstall            # 移除 Claude Code 中的 Hook 配置
+cahr --version             # 查看版本，确认安装成功
+cahr status                # 查看 Hook 安装状态
+cahr start [端口]          # 启动 cahr
+cahr install-test-skill    # 安装测试 Skill（用于验证嵌套 Skill 追踪）
+cahr uninstall             # 移除 Claude Code 中的 Hook 配置
 ```
+
+> **注意**：`cahr` 和 `relay` 命令均可使用，功能完全相同。
 
 ---
 
@@ -186,15 +188,15 @@ npm run build
 ### 运行测试
 
 ```bash
-npm run test              # 启动 cahr → 运行测试 → 停止 relay
-npm run test:port 8080   # 连接已有 relay（指定端口）运行测试
+npm run test              # 启动 cahr → 运行测试 → 停止 cahr
+npm run test:port 8080   # 连接已有 cahr（指定端口）运行测试
 ```
 
 测试会发送 4 种 Hook 事件序列（无 Skill、单 Skill、嵌套 Skill、SessionEnd），验证 cahr 的 Skill 追踪和聚合逻辑是否正确。测试不依赖真实的 Skill，skill 名称是测试用的模拟字符串。
 
 ### cahr 输出示例
 
-Session 结束时，relay 会打印汇总：
+Session 结束时，cahr 会打印汇总：
 
 ```json
 {
@@ -241,16 +243,6 @@ HTTP Hook 提供了原生 OTel 无法做到的能力：
 | 修改/拦截操作 | ✅ | ❌ |
 | Token/费用指标 | ❌ | ✅ |
 | 标准格式导出 | ❌ | ✅ |
-
-```
-HTTP Hook 记录了：
-Skill "batch"
-  └── Bash "npm run build"  ← 知道这是 "batch" 触发的
-
-原生 OTel 只记录：
-Skill "batch"
-Bash "npm run build"  ← 没有父级上下文
-```
 
 详细对比见 [docs/data-collection-matrix.md](docs/data-collection-matrix.md)。
 
