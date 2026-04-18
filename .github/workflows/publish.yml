@@ -17,9 +17,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm install --ignore-scripts
-        continue-on-error: true
 
-      - run: npm run build || ./node_modules/.bin/tsc
+      - name: Build
+        run: |
+          ./node_modules/.bin/tsc 2>&1; echo "EXIT:$?"
 
       - run: npm publish --access public
         env:
