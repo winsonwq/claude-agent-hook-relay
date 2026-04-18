@@ -21,11 +21,14 @@ jobs:
 
       - name: Build
         run: |
-          ./node_modules/.bin/tsc
+          echo "=== tsc version ==="
+          ./node_modules/.bin/tsc --version
+          echo "=== tsconfig ==="
+          cat tsconfig.json 2>/dev/null || echo "no tsconfig"
+          echo "=== running tsc ==="
+          ./node_modules/.bin/tsc 2>&1
           echo "=== dist check ==="
           ls dist/ 2>/dev/null || echo "no dist"
-          echo "=== files count ==="
-          find dist/ -type f 2>/dev/null | wc -l
 
       - run: npm publish --access public
         env:
