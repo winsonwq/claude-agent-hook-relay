@@ -1,137 +1,126 @@
 # claude-agent-hook-relay
 
-> Collect and forward Claude Code Hook events to external systems.
+> 收集并转发 Claude Code Hook 事件，将事件统一汇聚到外部系统。
 
-[![npm version](https://img.shields.io/npm/v/claude-agent-hook-relay.svg)](https://npmjs.com/package/claude-agent-hook-relay)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## 这是什么
 
-## What is this?
+`claude-agent-hook-relay` 是一个轻量的 HTTP 服务，充当 **Hook 事件汇聚层**。它的核心价值：
 
-`claude-agent-hook-relay` is a lightweight HTTP service that acts as a **Hook event collection layer** for Claude Code. It provides two unique values:
+| 价值 | 说明 |
+|------|------|
+| **多终端 Hook 汇聚** | 多个 Claude Code 实例的 Hook 事件统一收集，无需在每个终端单独配置 |
+| **Skill 调用链追踪** | 追踪哪个 Skill 调用了哪些工具，包括嵌套深度 —— 这是原生 OTel **做不到** 的 |
 
-### Core Value
+### 为什么用 relay 而不是 SDK 或 Hook 脚本？
 
-| Value | Description |
-|-------|-------------|
-| **Multi-terminal Hook Collection** | Unified collection of Hook events from multiple Claude Code instances without configuring Hooks on each terminal |
-| **Skill Call Chain Tracking** | Tracks which Skill triggered which tools, including nested depth — this is **not available in native OTel** |
+| 方案 | 问题 |
+|------|------|
+| SDK 硬编码 | 耦合紧，升级困难 |
+| 分散的 Hook 脚本 | 难以管理，分散在各处 |
+| **relay** | 集中管理，灵活可扩展 |
 
-### Why relay instead of SDK or Hook scripts?
+### relay 不是
 
-| Approach | Drawback |
-|---------|----------|
-| Hardcoded in SDK runtime | Coupled, hard to upgrade |
-| Distributed Hook scripts | Scattered, hard to manage |
-| **relay** | Centralized, flexible, extensible |
+- **不是日志系统** —— 它只做收集和转发，存储由外部处理
+- **不是决策引擎** —— A/B 测试和业务逻辑属于 Skill 平台
+- **不依赖 SDK** —— 配合任意 Claude Code Hook 配置使用
 
-### What relay is NOT
+## 功能
 
-- **Not a logging system** — it collects and forwards, storage is external
-- **Not a decision engine** — A/B testing and business logic belong on the Skill platform
-- **Not coupled to SDK** — works with any Claude Code Hook configuration
-
-## Vision
-
-relay serves as a **secondary development platform for Hook-based operations**. Instead of writing logic into SDK runtime or distributing Hook scripts across terminals, relay provides a unified layer where you can implement:
-
-- Observability (collect → forward to your storage)
-- Real-time alerts (detect → notify)
-- Usage aggregation (per Skill, per terminal)
-- Access control (block/modify tool calls)
-
-All without modifying Claude Code or the SDK.
-
-## Features
-
-- 🔌 Receives all 26 Claude Code Hook events via HTTP POST
-- 📁 Reads Transcript files for detailed usage calculation
-- 🏷️ Multi-terminal support via `X-Source-ID` header
-- 🔄 Extensible forwarder architecture (Console, HTTP, and more)
-- 🚫 Zero modification to Claude Code or SDK
-
-## Installation
-
-**From npm (end users):**
-```bash
-npm install -g claude-agent-hook-relay
-```
-Hooks are auto-configured by the postinstall script.
-
-**From source (developers):**
-```bash
-npm install
-npm run build
-```
-
-## Install & Verify
-
-After installing from npm, Claude Code hooks are **auto-configured** by the postinstall script. Follow these steps:
-
-**Step 1: Start the relay**
-
-```bash
-relay start
-```
-
-By default the relay listens on port 8080. To use a different port:
-
-```bash
-relay start 9000
-```
-
-**Step 2: Verify with Claude Code**
-
-In another terminal, run a prompt that triggers tool usage:
-
-```bash
-claude -p "List all files in /tmp using Bash"
-```
-
-Then check the relay terminal — you should see output like:
-
-```
-[Relay] {"sessionId":"...","sourceId":"...","skillCount":0,"skillList":[]}
-```
-
-> **Note:** `skillCount: 0` means no Skill invocations occurred — Claude Code called tools (Bash) directly. This confirms the relay is receiving hook events correctly.
-
-**Step 3: Stop the relay**
-
-Press Ctrl+C in the relay terminal.
+- 🔌 接收全部 26 个 Claude Code Hook 事件
+- 📁 读取 Transcript 文件计算详细用量
+- 🏷️ 通过 `X-Source-ID` 支持多终端
+- 🔄 可扩展的 Forwarder 架构（Console、HTTP 等）
+- 🚫 无需修改 Claude Code 或 SDK
 
 ---
 
-**Useful commands:**
+## 安装
+
+**方式一：通过 npm 安装（适合最终用户）**
 
 ```bash
-relay --version          # Check installation
-relay status            # Show hook installation status
-relay start [port]      # Start relay (default port: 8080)
-relay uninstall         # Remove hooks from Claude Code
+npm install -g claude-agent-hook-relay
 ```
 
-## For Developers
+安装后，postinstall 脚本会自动在 `~/.claude/settings.json` 中配置好 Hook指向 `http://localhost:8080`。
 
-### Local setup
+**方式二：从源码安装（适合开发者）**
 
 ```bash
-git clone <repo-url>
+git clone <仓库地址>
 cd claude-agent-hook-relay
 npm install
 npm run build
 ```
 
-### Run relay locally
+---
+
+## 安装后验证
+
+安装完成后，按以下步骤验证 relay 是否正常工作：
+
+**第一步：启动 relay**
 
 ```bash
-npm run dev          # watch mode with tsx
-npm run build       # compile TypeScript
-npm start           # run compiled dist/index.js
+relay start
 ```
 
-### Configure Claude Code hooks manually
+默认监听端口 8080。如需更换端口：
 
-Add to `~/.claude/settings.json`:
+```bash
+relay start 9000
+```
+
+**第二步：用 Claude Code 触发一个工具调用**
+
+在另一个终端运行：
+
+```bash
+claude -p "列出 /tmp 目录下的所有文件"
+```
+
+**第三步：查看 relay 输出**
+
+回到 relay 终端，应该能看到类似这样的输出：
+
+```
+[Relay] {"sessionId":"...","sourceId":"...","skillCount":0,"skillList":[]}
+```
+
+`skillCount: 0` 表示这个 session 中没有触发 Skill 调用（只有 Bash 工具）。这已经说明 relay 正常收到了 Claude Code 发来的 Hook 事件。
+
+**第四步：停止 relay**
+
+在 relay 终端按 `Ctrl+C`。
+
+---
+
+**其他常用命令**
+
+```bash
+relay --version          # 查看版本，确认安装成功
+relay status             # 查看 Hook 安装状态
+relay start [端口]       # 启动 relay
+relay uninstall         # 移除 Claude Code 中的 Hook 配置
+```
+
+---
+
+## 开发者文档
+
+### 本地开发环境搭建
+
+```bash
+git clone <仓库地址>
+cd claude-agent-hook-relay
+npm install
+npm run build
+```
+
+### 手动配置 Claude Code Hook
+
+如果你需要手动配置 Hook（在源码开发模式下），在 `~/.claude/settings.json` 中添加：
 
 ```json
 {
@@ -172,28 +161,36 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### Run tests
+### 运行测试
 
 ```bash
-npm run test              # start relay + run test suite + stop relay
-npm run test:port 8080   # test against a running relay on port 8080
+npm run test              # 启动 relay → 运行测试 → 停止 relay
+npm run test:port 8080   # 连接已有 relay（指定端口）运行测试
 ```
 
-The test suite sends realistic hook event sequences (no-skill, single-skill, nested-skill, session-end) and verifies the relay's skill tracking and aggregation logic.
+测试会发送 4 种 Hook 事件序列（无 Skill、单 Skill、嵌套 Skill、SessionEnd），验证 relay 的 Skill 追踪和聚合逻辑是否正确。测试不依赖真实的 Skill，skill 名称是测试用的模拟字符串。
 
-### View relay output
+### relay 输出示例
 
-When a session ends, the relay prints a summary:
+Session 结束时，relay 会打印汇总：
 
 ```json
 {
   "sessionId": "abc-123",
   "sourceId": "my-workstation",
   "skillCount": 1,
-  "skillList": [{"skill": "batch", "durationMs": 500, "nestedCalls": ["Bash", "Read"]}],
+  "skillList": [
+    {
+      "skill": "batch",
+      "durationMs": 500,
+      "nestedCalls": ["Bash", "Read"]
+    }
+  ],
   "totalUsage": {
-    "inputTokens": 5000, "outputTokens": 300,
-    "cacheReadTokens": 20000, "cacheCreationTokens": 1000,
+    "inputTokens": 5000,
+    "outputTokens": 300,
+    "cacheReadTokens": 20000,
+    "cacheCreationTokens": 1000,
     "costUsd": 0.05
   },
   "sessionDuration": 30000,
@@ -201,87 +198,46 @@ When a session ends, the relay prints a summary:
 }
 ```
 
-## Claude Code Observability: HTTP Hook vs OpenTelemetry
+---
 
-Claude Code provides two data collection mechanisms:
+## Claude Code 可观测性：HTTP Hook vs OpenTelemetry
 
-| Mechanism | Description |
-|-----------|-------------|
-| **HTTP Hook** | Real-time callbacks, can modify/block operations |
-| **Native OpenTelemetry** | Standard telemetry export for metrics/traces/logs |
+Claude Code 提供两种数据收集机制：
 
-See [docs/data-collection-matrix.md](docs/data-collection-matrix.md) for a complete data coverage comparison.
+| 机制 | 说明 |
+|------|------|
+| **HTTP Hook** | 实时回调，可以修改或拦截操作 |
+| **原生 OpenTelemetry** | 标准遥测导出，用于指标/追踪/日志 |
 
-### Key Insight: Skill Call Chain Tracking
+HTTP Hook 提供了原生 OTel 无法做到的能力：
 
-HTTP Hook provides **unique value** that native OTel does not:
-
-| Capability | HTTP Hook | Native OTel |
-|------------|:---------:|:-----------:|
-| **Skill trigger chain** | ✅ | ❌ |
-| **Nested depth tracking** | ✅ | ❌ |
-| Real-time processing | ✅ | ⚠️ (batched) |
-| Modify/block operations | ✅ | ❌ |
-| Token/Cost metrics | ❌ | ✅ |
-| Standard format export | ❌ | ✅ |
+| 能力 | HTTP Hook | 原生 OTel |
+|------|:---------:|:---------:|
+| **Skill 触发链追踪** | ✅ | ❌ |
+| **嵌套深度追踪** | ✅ | ❌ |
+| 实时处理 | ✅ | ⚠️（批量） |
+| 修改/拦截操作 | ✅ | ❌ |
+| Token/费用指标 | ❌ | ✅ |
+| 标准格式导出 | ❌ | ✅ |
 
 ```
-HTTP Hook tracks:
+HTTP Hook 记录了：
 Skill "batch"
-  └── Bash "npm run build"  ← knows this was triggered by "batch"
+  └── Bash "npm run build"  ← 知道这是 "batch" 触发的
 
-Native OTel only records:
+原生 OTel 只记录：
 Skill "batch"
-Bash "npm run build"  ← no parent context
+Bash "npm run build"  ← 没有父级上下文
 ```
 
-## Documentation
+详细对比见 [docs/data-collection-matrix.md](docs/data-collection-matrix.md)。
 
-- [SPEC.md](SPEC.md) - Project specification
-- [AGENTS.md](AGENTS.md) - Development guidelines
-- [docs/tech.md](docs/tech.md) - Technical architecture
-- [docs/api.md](docs/api.md) - API endpoint reference
-- [docs/data-collection-matrix.md](docs/data-collection-matrix.md) - Data coverage comparison
-- [docs/otel-integration.md](docs/otel-integration.md) - OpenTelemetry integration design
-- [docs/secondary-development.md](docs/secondary-development.md) - Secondary development & extensions
+---
 
-## Extending
+## 支持的 Hook 事件
 
-### Custom Forwarders
-
-Implement the `Forwarder` interface:
-
-```typescript
-interface Forwarder {
-  forward(data: ForwardPayload): Promise<void>;
-}
-```
-
-Example with Kafka:
-
-```typescript
-class KafkaForwarder implements Forwarder {
-  constructor(private brokers: string[], private topic: string) {}
-
-  async forward(data: ForwardPayload): Promise<void> {
-    // Send to Kafka
-  }
-}
-```
-
-### Using Multiple Forwarders
-
-```typescript
-const forwarder = new CompositeForwarder([
-  new ConsoleForwarder(),           // Local debugging
-  new HttpForwarder('https://...'), // Remote server
-]);
-```
-
-## Supported Hook Events
-
-| Event | Endpoint |
-|-------|----------|
+| 事件 | 端点 |
+|------|------|
 | PreToolUse | /hook/pre-tool-use |
 | PostToolUse | /hook/post-tool-use |
 | PostToolUseFailure | /hook/post-tool-use-failure |
@@ -309,10 +265,52 @@ const forwarder = new CompositeForwarder([
 | Elicitation | /hook/elicitation |
 | ElicitationResult | /hook/elicitation-result |
 
+---
+
+## 扩展 Forwarder
+
+实现 `Forwarder` 接口即可添加自定义转发目标：
+
+```typescript
+interface Forwarder {
+  forward(data: ForwardPayload): Promise<void>;
+}
+```
+
+例如转发到 Kafka：
+
+```typescript
+class KafkaForwarder implements Forwarder {
+  constructor(private brokers: string[], private topic: string) {}
+  async forward(data: ForwardPayload): Promise<void> {
+    // 发送到 Kafka
+  }
+}
+```
+
+使用多个 Forwarder：
+
+```typescript
+const forwarder = new CompositeForwarder([
+  new ConsoleForwarder(),           // 本地调试
+  new HttpForwarder('https://...'), // 远程服务器
+]);
+```
+
+---
+
+## 更多文档
+
+- [SPEC.md](SPEC.md) - 项目规格说明
+- [AGENTS.md](AGENTS.md) - 开发指南
+- [docs/tech.md](docs/tech.md) - 技术架构
+- [docs/api.md](docs/api.md) - API 端点参考
+- [docs/data-collection-matrix.md](docs/data-collection-matrix.md) - 数据覆盖对比
+- [docs/otel-integration.md](docs/otel-integration.md) - OpenTelemetry 集成设计
+- [docs/secondary-development.md](docs/secondary-development.md) - 二次开发指南
+
+---
+
 ## License
 
-MIT - see [LICENSE](LICENSE)
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md)
+MIT - 见 [LICENSE](LICENSE)
