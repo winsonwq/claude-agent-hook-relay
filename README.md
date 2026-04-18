@@ -118,6 +118,16 @@ You should see `skillCount: 1` with the skill name in `skillList`.
 
 Press Ctrl+C in the relay terminal, or kill the process. There is no `relay stop` command (the relay is a long-running server process).
 
+---
+
+**Useful commands:**
+
+```bash
+relay --version          # Check installation
+relay status            # Show hook installation status
+relay uninstall         # Remove hooks from Claude Code
+```
+
 ## Quick Start
 
 ### 1. Start the relay server
