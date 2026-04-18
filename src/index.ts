@@ -18,13 +18,24 @@ import {
 
 // ─── CLI argument parsing ────────────────────────────────────────────────────
 
+const rawArgs = process.argv.slice(2);
+
+// Handle --version and -v before parseArgs to avoid "Unknown option" errors
+if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+  process.stdout.write(pkg.version + '\n');
+  process.exit(0);
+}
+
 const { values: args, positionals } = parseArgs({
-  args: process.argv.slice(2),
+  args: rawArgs,
   options: {
     url: { type: 'string', short: 'u', default: 'http://localhost:8080' },
     help: { type: 'boolean', short: 'h', default: false },
   },
   allowPositionals: true,
+  allowUnknownOptions: true,
 });
 
 const isHelp = args.help || ['help', '--help', '-h'].includes(positionals[0] ?? '');
