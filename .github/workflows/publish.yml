@@ -31,8 +31,8 @@ jobs:
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           echo "Published version: $PKG_VERSION"
-          # Install globally
-          npm install -g ./dist/
+          # Install from npm (not local) to verify the published package
+          npm install -g claude-agent-hook-relay
           # Verify commands work
           cahr --version
           cahr --help > /dev/null
