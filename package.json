@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "bin": {
     "cahr": "./dist/index.js",
-    "relay": "./dist/index.js"
+    "claude-agent-hook-relay": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

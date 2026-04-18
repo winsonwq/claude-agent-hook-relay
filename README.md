@@ -2,6 +2,19 @@
 
 > 收集并转发 Claude Code Hook 事件，将事件统一汇聚到外部系统。
 
+## CLI 命令
+
+安装后可用两个命令，功能完全相同：
+
+| 命令 | 说明 |
+|------|------|
+| `claude-agent-hook-relay` | 全名 |
+| `cahr` | 缩写 |
+
+示例：`cahr start` 和 `claude-agent-hook-relay start` 效果一样。
+
+---
+
 ## 这是什么
 
 `claude-agent-hook-relay` 是一个轻量的 HTTP 服务，充当 **Hook 事件汇聚层**。它的核心价值：
@@ -64,6 +77,8 @@ npm run build
 
 ```bash
 cahr start
+# 或
+claude-agent-hook-relay start
 ```
 
 默认监听端口 8080。如需更换端口：
@@ -120,14 +135,12 @@ claude -p "run nested-test-skill"
 **其他常用命令**
 
 ```bash
-cahr --version             # 查看版本，确认安装成功
-cahr status                # 查看 Hook 安装状态
-cahr start [端口]          # 启动 cahr
-cahr install-test-skill    # 安装测试 Skill（用于验证嵌套 Skill 追踪）
-cahr uninstall             # 移除 Claude Code 中的 Hook 配置
+cahr --version                  # 查看版本，确认安装成功
+cahr status                     # 查看 Hook 安装状态
+cahr start [端口]               # 启动 cahr
+cahr install-test-skill         # 安装测试 Skill（用于验证嵌套 Skill 追踪）
+cahr uninstall                  # 移除 Claude Code 中的 Hook 配置
 ```
-
-> **注意**：`cahr` 和 `relay` 命令均可使用，功能完全相同。
 
 ---
 
@@ -188,8 +201,8 @@ npm run build
 ### 运行测试
 
 ```bash
-npm run test              # 启动 cahr → 运行测试 → 停止 cahr
-npm run test:port 8080   # 连接已有 cahr（指定端口）运行测试
+npm run test                  # 启动 cahr → 运行测试 → 停止 cahr
+npm run test:port 8080       # 连接已有 cahr（指定端口）运行测试
 ```
 
 测试会发送 4 种 Hook 事件序列（无 Skill、单 Skill、嵌套 Skill、SessionEnd），验证 cahr 的 Skill 追踪和聚合逻辑是否正确。测试不依赖真实的 Skill，skill 名称是测试用的模拟字符串。

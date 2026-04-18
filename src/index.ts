@@ -187,6 +187,7 @@ async function cmdInstallTestSkill(): Promise<void> {
 
 async function cmdHelp(): Promise<void> {
   process.stdout.write(`Usage: cahr <command> [options]
+   (or: claude-agent-hook-relay <command> [options])
 
 Commands:
   cahr start [port]          Start the relay server (default port: 8080)
