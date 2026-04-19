@@ -110,6 +110,7 @@ async function cmdStart(): Promise<void> {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
       skillTree: session.skillTree,
+      totalUsage: session.cachedUsage ?? null,
       transcriptPath: session.transcriptPath,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
