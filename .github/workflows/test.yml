@@ -42,19 +42,20 @@ jobs:
 
       - name: Configure relay hooks
         run: |
-          # Find npm global bin path first
-          NPM_GLOBAL=$(npm root -g)
-          echo "NPM global bin: $NPM_GLOBAL"
-          ls -la "$NPM_GLOBAL/" 2>/dev/null | head -20 || echo "Cannot list global bin"
+          # Find npm global bin path - it's one level up from npm root -g
+          NPM_ROOT=$(npm root -g)
+          NPM_BIN="${NPM_ROOT%/lib/node_modules}/bin"
+          echo "NPM root: $NPM_ROOT"
+          echo "NPM bin: $NPM_BIN"
+          ls -la "$NPM_BIN/" 2>/dev/null | head -20 || echo "Cannot list bin"
           
           # Check if cahr is there
-          if [ -x "$NPM_GLOBAL/cahr" ]; then
-            CAHR_PATH="$NPM_GLOBAL/cahr"
-            echo "Found cahr at NPM global: $CAHR_PATH"
+          if [ -x "$NPM_BIN/cahr" ]; then
+            CAHR_PATH="$NPM_BIN/cahr"
+            echo "Found cahr at: $CAHR_PATH"
           else
-            echo "cahr not found at $NPM_GLOBAL/cahr"
-            # Search for cahr
-            find /home/runner -name "cahr" -type f 2>/dev/null | head -5
+            echo "cahr not found at $NPM_BIN/cahr"
+            find /opt/hostedtoolcache -name "cahr" -type f 2>/dev/null | head -5
           fi
           
           # Start relay in background
