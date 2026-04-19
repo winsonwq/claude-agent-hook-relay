@@ -34,7 +34,14 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: |
-          echo "Claude Code environment configured"
+          # Create settings.json with env vars for Claude Code
+          mkdir -p ~/.claude
+          printf '{"env":{"ANTHROPIC_API_KEY":"%s","ANTHROPIC_BASE_URL":"%s","ANTHROPIC_MODEL":"%s"}}\n' \
+            "$ANTHROPIC_API_KEY" \
+            "$ANTHROPIC_BASE_URL" \
+            "$ANTHROPIC_MODEL" > ~/.claude/settings.json
+          echo "Claude Code settings configured"
+          cat ~/.claude/settings.json
 
       - name: Setup test skills
         env:
