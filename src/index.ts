@@ -98,6 +98,41 @@ async function cmdStart(): Promise<void> {
 
   app.get('/health', (_req, res) => { res.json({ status: 'ok', port }); });
 
+  // API endpoint to get session data
+  app.get('/api/sessions/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const session = sessionManager.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    res.json({
+      sessionId: session.sessionId,
+      sourceId: session.sourceId,
+      skillTree: session.skillTree,
+      transcriptPath: session.transcriptPath,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    });
+  });
+
+  // API endpoint to list recent sessions
+  app.get('/api/sessions', (_req, res) => {
+    const sessions = sessionManager.getAll();
+    // Sort by updatedAt descending, take most recent 10
+    const recent = sessions
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 10)
+      .map(s => ({
+        sessionId: s.sessionId,
+        sourceId: s.sourceId,
+        hasSkillTree: !!s.skillTree,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      }));
+    res.json({ sessions: recent });
+  });
+
   app.listen(port, () => {
     process.stdout.write(`claude-agent-hook-relay v${getVersion()} listening on http://localhost:${port}\n`);
     if (usedDefault) {

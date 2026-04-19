@@ -145,6 +145,9 @@ export class HookCollector {
         : undefined,
     };
 
+    // Store skillTree in session for API access
+    this.sessionManager.setSkillTree(session.sessionId, skillTree, event.transcriptPath ?? null);
+
     await this.forwarder.forward(payload);
   }
 
@@ -185,6 +188,8 @@ export class HookCollector {
     };
 
     await this.forwarder.forward(payload);
-    this.sessionManager.clear(session.sessionId);
+    // Don't clear session immediately - we want to keep it for API access
+    // The session will persist until the relay is restarted
+    // this.sessionManager.clear(session.sessionId);
   }
 }

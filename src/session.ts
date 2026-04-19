@@ -1,4 +1,4 @@
-import type { Session, SkillInvocation, HookEvent, CallNode, ToolCallNode } from './types.js';
+import type { Session, SkillInvocation, HookEvent, CallNode, ToolCallNode, SkillTree } from './types.js';
 
 export class SessionManager {
   private sessions = new Map<string, Session>();
@@ -12,6 +12,8 @@ export class SessionManager {
         skillStack: [],
         completedSkills: [],
         events: [],
+        skillTree: null,
+        transcriptPath: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -87,6 +89,14 @@ export class SessionManager {
 
   getAll(): Session[] {
     return Array.from(this.sessions.values());
+  }
+
+  setSkillTree(sessionId: string, skillTree: SkillTree | null, transcriptPath: string | null): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.skillTree = skillTree;
+      session.transcriptPath = transcriptPath;
+    }
   }
 
   clear(sessionId: string): void {

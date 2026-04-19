@@ -62,6 +62,8 @@ export interface Session {
   skillStack: SkillInvocation[];
   completedSkills: SkillInvocation[];
   events: HookEvent[];
+  skillTree: SkillTree | null;
+  transcriptPath: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,13 +1,15 @@
-name: Publish to npm
+name: Test
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
 
@@ -23,19 +25,24 @@ jobs:
         run: npm run build
 
       - name: Install Claude Code
-        run: npm install -g @anthropic/claude-code
-
+        run: |
+          npm install -g @anthropic/claude-code
+          
       - name: Authenticate Claude Code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          # Skip auth if no API key (tests may be mocked)
           if [ -n "$ANTHROPIC_API_KEY" ]; then
             claude auth add --api-key "$ANTHROPIC_API_KEY"
           fi
 
       - name: Setup test skills
         run: |
+          # Create test skills directory if needed
           mkdir -p ~/.claude/skills
+          
+          # Setup weather-checker skill
           mkdir -p ~/.claude/skills/weather-checker
           cat > ~/.claude/skills/weather-checker/SKILL.md << 'EOF'
 # weather-checker
@@ -49,33 +56,7 @@ EOF
 
       - name: Run tests
         run: npm test
-
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
-
-      - run: npm install --ignore-scripts
-
-      - name: Build
-        run: npx tsc
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Verify published package
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          echo "Published version: $PKG_VERSION"
-          npm install -g claude-agent-hook-relay
-          claude-agent-hook-relay --version
-          claude-agent-hook-relay --help > /dev/null
-          echo "Verification passed!"
+        
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+        continue-on-error: true
