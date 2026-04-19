@@ -55,6 +55,9 @@ export class HookCollector {
         case 'PostToolUse':
           this.handlePostToolUse(session, event);
           break;
+        case 'PostToolUseFailure':
+          this.handlePostToolUseFailure(session, event, body);
+          break;
         case 'Stop':
           await this.handleStop(session, event, body);
           break;
@@ -95,6 +98,33 @@ export class HookCollector {
       // Pop the skill when it completes
       this.sessionManager.popSkill(session.sessionId, event.timestamp);
     }
+  }
+
+  private handlePostToolUseFailure(
+    session: ReturnType<SessionManager['getOrCreate']>,
+    event: HookEvent,
+    body: Record<string, unknown>
+  ): void {
+    // body.error contains the error message
+    const errorMessage = typeof body.error === 'string' ? body.error
+      : body.error && typeof body.error === 'object' && 'message' in body.error
+        ? String((body.error as {message: unknown}).message)
+        : 'Unknown error';
+
+    // Find which skill (if any) this tool was called within
+    const currentSkill = session.skillStack.length > 0
+      ? session.skillStack[session.skillStack.length - 1].skill
+      : undefined;
+
+    this.sessionManager.recordFailure(session.sessionId, {
+      sessionId: session.sessionId,
+      sourceId: session.sourceId,
+      toolName: event.toolName || 'unknown',
+      toolUseId: event.toolUseId,
+      skillName: currentSkill,
+      error: errorMessage,
+      timestamp: event.timestamp,
+    });
   }
 
   private async handleStop(
@@ -143,6 +173,7 @@ export class HookCollector {
       stopReason: typeof (body.reason ?? body.stopReason) === 'string'
         ? (body.reason ?? body.stopReason) as string
         : undefined,
+      failures: session.failures,
     };
 
     // Store skillTree in session for API access
@@ -190,6 +221,7 @@ export class HookCollector {
       stopReason: typeof (body2.reason ?? body2.exit_reason) === 'string'
         ? (body2.reason ?? body2.exit_reason) as string
         : undefined,
+      failures: session.failures,
     };
 
     await this.forwarder.forward(payload);

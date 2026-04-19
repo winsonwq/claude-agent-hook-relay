@@ -35,6 +35,11 @@ export interface ToolCallNode {
   startTime?: number;  // When this tool was called (for synthetic <no-skill> root)
   durationMs?: number;
   usage?: ModelUsage;  // Token usage for this tool call
+  // Error info (populated when tool call fails)
+  error?: {
+    message: string;
+    code?: string;
+  };
 }
 
 export interface SkillInvocation {
@@ -72,6 +77,8 @@ export interface Session {
   // Cached from Stop event for use in SessionEnd
   cachedUsage?: ModelUsage;
   cachedSkillTree?: SkillTree;
+  // Tool failures that occurred
+  failures: ToolFailure[];
 }
 
 // Forwarder interface
@@ -98,4 +105,16 @@ export interface ForwardPayload {
   allEvents: HookEvent[];
   sessionDuration: number;
   stopReason?: string;
+  // Tool failures that occurred during the session
+  failures: ToolFailure[];
+}
+
+export interface ToolFailure {
+  sessionId: string;
+  sourceId: string;
+  toolName: string;
+  toolUseId?: string;
+  skillName?: string;  // Which skill this tool was called within (if any)
+  error: string;
+  timestamp: number;
 }

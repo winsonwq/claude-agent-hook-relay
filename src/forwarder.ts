@@ -83,6 +83,14 @@ export class ConsoleForwarder implements Forwarder {
       lines.push(`📌 停止原因: ${data.stopReason}`);
     }
 
+    if (data.failures && data.failures.length > 0) {
+      lines.push(`❌ 失败: ${data.failures.length} 个`);
+      for (const f of data.failures) {
+        const skillPart = f.skillName ? ` (${f.skillName} 内)` : '';
+        lines.push(`   ❌ ${f.toolName}${skillPart}: ${f.error}`);
+      }
+    }
+
     process.stdout.write(`[Relay]\n${lines.join('\n')}\n\n`);
   }
 }
