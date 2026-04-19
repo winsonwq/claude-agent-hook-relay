@@ -25,7 +25,9 @@ jobs:
         run: npm run build
 
       - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          npm install -g claude-agent-hook-relay
 
       - name: Authenticate Claude Code
         env:
