@@ -40,7 +40,7 @@ jobs:
           HOME: /home/runner
         run: bash scripts/setup-test-skills.sh
 
-      - name: Configure relay hooks
+      - name: Start relay and init hooks
         run: |
           # Start relay in background
           node dist/index.js start &
@@ -56,12 +56,8 @@ jobs:
             sleep 1
           done
           
-          # Configure hooks using local relay's init command
+          # Configure Claude Code hooks to point to relay
           node dist/index.js init --url http://localhost:8080
-          
-          # Verify settings
-          echo "Settings after init:"
-          cat ~/.claude/settings.json 2>/dev/null | head -c 500
           
           # Run tests
           npm test
