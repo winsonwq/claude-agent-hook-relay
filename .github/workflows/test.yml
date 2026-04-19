@@ -38,17 +38,52 @@ jobs:
       - name: Setup test skills
         env:
           HOME: /home/runner
-        run: |
-          bash scripts/setup-test-skills.sh
-          echo "Skills installed:"
-          ls -la /home/runner/.claude/skills/
+        run: bash scripts/setup-test-skills.sh
 
-      - name: Verify skills exist
+      - name: Configure relay hooks
         run: |
-          echo "Verifying skills..."
-          ls -la /home/runner/.claude/skills/
-
-      - name: Run tests
-        run: |
-          export PATH="$PATH:$(npm root -g)"
+          # Find cahr path
+          CAHR_PATH=""
+          for dir in /home/runner/.npm-global/bin /usr/local/bin /usr/bin; do
+            if [ -x "$dir/cahr" ]; then
+              CAHR_PATH="$dir/cahr"
+              break
+            fi
+          done
+          
+          # Fallback to PATH
+          if [ -z "$CAHR_PATH" ]; then
+            CAHR_PATH=$(which cahr 2>/dev/null || echo "cahr")
+          fi
+          
+          echo "Using cahr from: $CAHR_PATH"
+          
+          # Start relay in background
+          node dist/index.js start &
+          RELAY_PID=$!
+          echo "Relay PID: $RELAY_PID"
+          
+          # Wait for relay
+          for i in {1..10}; do
+            if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Relay ready"
+              break
+            fi
+            sleep 1
+          done
+          
+          # Configure hooks
+          $CAHR_PATH init --url http://localhost:8080 || echo "cahr init failed"
+          
+          # Verify settings
+          echo "Settings after init:"
+          cat ~/.claude/settings.json 2>/dev/null | head -c 500 || echo "no settings"
+          
+          # Run tests
           npm test
+          TEST_RESULT=$?
+          
+          # Cleanup
+          kill $RELAY_PID 2>/dev/null || true
+          
+          exit $TEST_RESULT

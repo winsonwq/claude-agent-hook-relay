@@ -66,37 +66,7 @@ async function startRelay() {
     retries--;
   }
   
-  // Configure Claude Code hooks to send events to this relay
-  // Find cahr path - check multiple possible locations
-  const possiblePaths = [
-    process.env.HOME ? join(process.env.HOME, '.nvm', 'versions', 'node', 'v22.22.0', 'bin', 'cahr') : null,
-    '/usr/local/bin/cahr',
-    '/usr/bin/cahr',
-    'cahr', // fallback to PATH
-  ].filter(Boolean) as string[];
-  
-  let cahrPath = 'cahr';
-  for (const p of possiblePaths) {
-    try {
-      execSync(`test -x ${p} && echo OK`, { stdio: 'pipe' });
-      cahrPath = p;
-      console.log('[Test] Found cahr at:', cahrPath);
-      break;
-    } catch {}
-  }
-  
-  // Run cahr init synchronously using execSync with timeout
-  try {
-    const output = execSync(`${cahrPath} init --url ${RELAY_URL}`, {
-      encoding: 'utf-8',
-      timeout: 30000
-    });
-    console.log('[Test] cahr init succeeded:', output.slice(0, 200));
-  } catch (e: unknown) {
-    const err = e as {message?: string; stderr?: string; status?: number};
-    console.error('[Test] cahr init failed:', err.message || err.stderr);
-    console.error('[Test] cahr exit status:', err.status);
-  }
+  console.log('[Test] Relay ready, hooks should be configured by workflow');
   
   // Verify hook is configured
   try {
