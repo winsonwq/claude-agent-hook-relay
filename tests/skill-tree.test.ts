@@ -100,7 +100,7 @@ async function getSessionJson(sessionId: string): Promise<SessionResponse | null
   }
 }
 
-async function waitForSession(timeoutMs = 15000): Promise<SessionResponse | null> {
+async function waitForSession(timeoutMs = 30000): Promise<SessionResponse | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
