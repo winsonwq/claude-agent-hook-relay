@@ -25,38 +25,20 @@ jobs:
         run: npm run build
 
       - name: Install Claude Code
-        run: |
-          npm install -g @anthropic/claude-code
-          
+        run: npm install -g @anthropic/claude-code
+
       - name: Authenticate Claude Code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          # Skip auth if no API key (tests may be mocked)
           if [ -n "$ANTHROPIC_API_KEY" ]; then
             claude auth add --api-key "$ANTHROPIC_API_KEY"
           fi
 
       - name: Setup test skills
         run: |
-          # Create test skills directory if needed
-          mkdir -p ~/.claude/skills
-          
-          # Setup weather-checker skill
           mkdir -p ~/.claude/skills/weather-checker
-          cat > ~/.claude/skills/weather-checker/SKILL.md << 'EOF'
-# weather-checker
-
-## Steps
-
-**Step 1:** Use the Bash tool to check weather:
-Tool: Bash
-Input: {"command": "echo 'Weather check: ' && date"}
-EOF
+          printf '%s\n' '# weather-checker' '' '## Steps' '' 'Step 1: Use the Bash tool to check weather:' 'Tool: Bash' 'Input: {"command": "echo '"'"'Weather check: '"'"' && date"}' > ~/.claude/skills/weather-checker/SKILL.md
 
       - name: Run tests
         run: npm test
-        
-      - name: Run tests with coverage
-        run: npm test -- --coverage
-        continue-on-error: true
