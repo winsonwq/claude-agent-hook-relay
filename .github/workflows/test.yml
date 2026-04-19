@@ -36,15 +36,9 @@ jobs:
           fi
 
       - name: Setup test skills
-        env:
-          HOME: /home/runner
-        run: |
-          mkdir -p ~/.claude/skills/weather-checker
-          printf '%s\n' '# weather-checker' '' '## Steps' '' 'Step 1: Use the Bash tool to check weather:' 'Tool: Bash' 'Input: {"command": "echo '"'"'Weather check: '"'"' && date"}' > ~/.claude/skills/weather-checker/SKILL.md
+        run: bash scripts/setup-test-skills.sh
 
       - name: Run tests
         env:
           CLAUDE_CMD: claude
-        run: |
-          export PATH="$PATH:/home/runner/.npm-global/bin:/home/runner/.local/bin:/usr/local/bin"
-          npm test
+        run: npm test
