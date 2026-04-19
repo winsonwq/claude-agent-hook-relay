@@ -40,11 +40,6 @@ interface SessionResponse {
 const RELAY_PORT = 8080;
 const RELAY_URL = `http://localhost:${RELAY_PORT}`;
 
-// Debug: Print relevant env vars
-console.log('[Test] ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? 'set' : 'NOT SET');
-console.log('[Test] ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL || 'NOT SET');
-console.log('[Test] ANTHROPIC_MODEL:', process.env.ANTHROPIC_MODEL || 'NOT SET');
-
 let relayProcess: ReturnType<typeof spawn> | null = null;
 
 async function startRelay() {
@@ -71,15 +66,7 @@ async function startRelay() {
     retries--;
   }
   
-  console.log('[Test] Relay ready, hooks should be configured by workflow');
-  
-  // Verify hook is configured
-  try {
-    const settings = execSync('cat ~/.claude/settings.json 2>/dev/null || echo "no settings"', { encoding: 'utf-8' });
-    console.log('[Test] Current settings:', settings.slice(0, 200));
-  } catch {
-    console.log('[Test] Could not read settings');
-  }
+  console.log('[Test] Relay ready');
 }
 
 async function stopRelay() {
