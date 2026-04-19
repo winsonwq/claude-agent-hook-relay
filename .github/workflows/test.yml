@@ -25,9 +25,7 @@ jobs:
         run: npm run build
 
       - name: Install Claude Code
-        run: |
-          npm install -g @anthropic-ai/claude-code
-          npm install -g claude-agent-hook-relay
+        run: npm install -g @anthropic-ai/claude-code
 
       - name: Authenticate Claude Code
         env:
@@ -44,22 +42,6 @@ jobs:
 
       - name: Configure relay hooks
         run: |
-          # Find npm global bin path - it's one level up from npm root -g
-          NPM_ROOT=$(npm root -g)
-          NPM_BIN="${NPM_ROOT%/lib/node_modules}/bin"
-          echo "NPM root: $NPM_ROOT"
-          echo "NPM bin: $NPM_BIN"
-          ls -la "$NPM_BIN/" 2>/dev/null | head -20 || echo "Cannot list bin"
-          
-          # Check if cahr is there
-          if [ -x "$NPM_BIN/cahr" ]; then
-            CAHR_PATH="$NPM_BIN/cahr"
-            echo "Found cahr at: $CAHR_PATH"
-          else
-            echo "cahr not found at $NPM_BIN/cahr"
-            find /opt/hostedtoolcache -name "cahr" -type f 2>/dev/null | head -5
-          fi
-          
           # Start relay in background
           node dist/index.js start &
           RELAY_PID=$!
@@ -74,16 +56,12 @@ jobs:
             sleep 1
           done
           
-          # Configure hooks if cahr found
-          if [ -n "$CAHR_PATH" ] && [ -x "$CAHR_PATH" ]; then
-            $CAHR_PATH init --url http://localhost:8080 || echo "cahr init failed"
-          else
-            echo "Skipping cahr init - not found"
-          fi
+          # Configure hooks using local relay's init command
+          node dist/index.js init --url http://localhost:8080
           
           # Verify settings
           echo "Settings after init:"
-          cat ~/.claude/settings.json 2>/dev/null | head -c 500 || echo "no settings"
+          cat ~/.claude/settings.json 2>/dev/null | head -c 500
           
           # Run tests
           npm test
