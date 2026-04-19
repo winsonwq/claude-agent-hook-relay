@@ -49,4 +49,6 @@ jobs:
           ls -la /home/runner/.claude/skills/
 
       - name: Run tests
-        run: npm test
+        run: |
+          export PATH="$PATH:$(npm root -g)"
+          npm test

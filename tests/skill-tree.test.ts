@@ -1,6 +1,7 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import { execSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { join } from 'path';
 
 interface SkillTree {
   skill: string;
@@ -66,13 +67,41 @@ async function startRelay() {
   }
   
   // Configure Claude Code hooks to send events to this relay
+  // Find cahr executable - may be in npm global bin or local node_modules
+  const npmGlobalBin = execSync('npm bin -g 2>/dev/null || echo ""', { encoding: 'utf-8' }).trim();
+  const pathParts = (process.env.PATH || '').split(':');
+  const possiblePaths = [
+    ...pathParts,
+    '/usr/local/bin',
+    '/usr/bin',
+    npmGlobalBin,
+  ].filter(Boolean);
+  
+  let cahrCmd = 'cahr';
+  for (const p of possiblePaths) {
+    try {
+      const cahrPath = join(p, 'cahr');
+      execSync(`test -x ${cahrPath} && echo exists`, { stdio: 'pipe' });
+      cahrCmd = cahrPath;
+      console.log('[Test] Found cahr at:', cahrPath);
+      break;
+    } catch {}
+  }
+  
   try {
     console.log('[Test] Running cahr init with URL:', RELAY_URL);
-    const result = execSync(`cahr init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8' });
+    const result = execSync(`${cahrCmd} init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8' });
     console.log('[Test] cahr init output:', result);
   } catch (e: unknown) {
     const err = e as {message?: string; stderr?: string};
     console.error('[Test] cahr init failed:', err.message || err.stderr);
+    // Try direct npm exec
+    try {
+      console.log('[Test] Trying npx cahr init...');
+      execSync(`npx cahr init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8', stdio: 'pipe' });
+    } catch (e2) {
+      console.error('[Test] npx cahr also failed:', (e2 as Error).message);
+    }
   }
   
   // Verify hook is configured
