@@ -17,7 +17,8 @@
     "test:port": "tsx scripts/test-relay.ts",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "prepublishOnly": "node scripts/block-publish.js"
   },
   "keywords": [
     "claude",
