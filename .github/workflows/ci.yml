@@ -1,8 +1,11 @@
-name: Test
+name: CI
 
 on:
   push:
     branches: [main]
+  push:
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -10,8 +13,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
-    
     steps:
       - uses: actions/checkout@v4
 
@@ -35,28 +36,22 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: |
-          # Create settings.json with env vars for Claude Code
           mkdir -p ~/.claude
           printf '{"env":{"ANTHROPIC_API_KEY":"%s","ANTHROPIC_BASE_URL":"%s","ANTHROPIC_MODEL":"%s"}}\n' \
             "$ANTHROPIC_API_KEY" \
             "$ANTHROPIC_BASE_URL" \
             "$ANTHROPIC_MODEL" > ~/.claude/settings.json
-          echo "Claude Code settings configured"
-          cat ~/.claude/settings.json
 
       - name: Setup test skills
         env:
           HOME: /home/runner
         run: bash scripts/setup-test-skills.sh
 
-      - name: Start relay and init hooks
+      - name: Start relay and run tests
         run: |
-          # Start relay in background
           node dist/index.js start &
           RELAY_PID=$!
-          echo "Relay PID: $RELAY_PID"
-          
-          # Wait for relay
+
           for i in {1..10}; do
             if curl -s http://localhost:8080/health > /dev/null 2>&1; then
               echo "Relay ready"
@@ -64,15 +59,38 @@ jobs:
             fi
             sleep 1
           done
-          
-          # Configure Claude Code hooks to point to relay
+
           node dist/index.js init --url http://localhost:8080
-          
-          # Run tests
           npm test
           TEST_RESULT=$?
-          
-          # Cleanup
+
           kill $RELAY_PID 2>/dev/null || true
-          
           exit $TEST_RESULT
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: test
+    # Only run on tag pushes (not on regular commits)
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm install --ignore-scripts
+
+      - name: Build
+        run: npx tsc
+
+      - name: Publish to npm
+        run: npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published package
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "Published version: $PKG_VERSION"
