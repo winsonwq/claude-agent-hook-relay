@@ -36,7 +36,17 @@ jobs:
           fi
 
       - name: Setup test skills
-        run: bash scripts/setup-test-skills.sh
+        env:
+          HOME: /home/runner
+        run: |
+          bash scripts/setup-test-skills.sh
+          echo "Skills installed:"
+          ls -la /home/runner/.claude/skills/
+
+      - name: Verify skills exist
+        run: |
+          echo "Verifying skills..."
+          ls -la /home/runner/.claude/skills/
 
       - name: Run tests
         run: npm test
