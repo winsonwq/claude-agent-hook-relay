@@ -149,17 +149,24 @@ export class HookCollector {
     // Enrich with transcript-based token usage and nested calls if available
     let skillTree: SkillTree | null = null;
     if (event.transcriptPath) {
-      try {
-        const transcriptUsage = await TranscriptReader.getSessionUsage(event.transcriptPath);
-        modelUsage.inputTokens = transcriptUsage.inputTokens || modelUsage.inputTokens;
-        modelUsage.outputTokens = transcriptUsage.outputTokens || modelUsage.outputTokens;
-        modelUsage.cacheReadTokens = transcriptUsage.cacheReadTokens || modelUsage.cacheReadTokens;
-        modelUsage.cacheCreationTokens = transcriptUsage.cacheCreationTokens || modelUsage.cacheCreationTokens;
+      // Retry a few times in case the transcript file isn't fully written yet
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const transcriptUsage = await TranscriptReader.getSessionUsage(event.transcriptPath);
+          modelUsage.inputTokens = transcriptUsage.inputTokens || modelUsage.inputTokens;
+          modelUsage.outputTokens = transcriptUsage.outputTokens || modelUsage.outputTokens;
+          modelUsage.cacheReadTokens = transcriptUsage.cacheReadTokens || modelUsage.cacheReadTokens;
+          modelUsage.cacheCreationTokens = transcriptUsage.cacheCreationTokens || modelUsage.cacheCreationTokens;
 
-        // Build unified skill tree from transcript
-        skillTree = await TranscriptReader.analyzeNestedCalls(event.transcriptPath);
-      } catch {
-        // Ignore transcript read errors
+          // Build unified skill tree from transcript
+          skillTree = await TranscriptReader.analyzeNestedCalls(event.transcriptPath);
+          // If we got a meaningful result, we're done
+          if (skillTree !== null) break;
+        } catch {
+          // Ignore transcript read errors
+        }
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
