@@ -1,4 +1,4 @@
-import type { ForwardPayload, Forwarder, CallNode, SkillCallNode, ToolCallNode } from './types.js';
+import type { ForwardPayload, Forwarder, CallNode, SkillCallNode, ToolCallNode, ModelUsage } from './types.js';
 
 /**
  * Console Forwarder - outputs to stdout with friendly formatting
@@ -182,22 +182,28 @@ export class OtelForwarder implements Forwarder {
     const spanMap = new Map<string, OtelSpan>();
 
     // SkillTree has 'skill' property, SkillCallNode has 'name' property
-    // Normalize to { name, toolUseId, nestedCalls, durationMs }
+    // Normalize to { name, toolUseId, nestedCalls, durationMs, usage }
     const rootNode = {
       name: tree.skill,
       toolUseId: tree.toolUseId,
       nestedCalls: tree.nestedCalls,
       durationMs: tree.durationMs,
+      usage: tree.usage,
     };
 
     // Process the tree recursively
     this.processNode(rootNode, undefined, 0, data, spans, spanMap);
 
+    // Add session-level total usage as a separate span
+    if (data.totalUsage) {
+      spans.push(this.buildTotalUsageSpan(data));
+    }
+
     return spans;
   }
 
   private processNode(
-    node: { name: string; toolUseId: string; nestedCalls: CallNode[]; durationMs?: number },
+    node: { name: string; toolUseId: string; nestedCalls: CallNode[]; durationMs?: number; usage?: ModelUsage },
     parentInvocationId: string | undefined,
     depth: number,
     data: ForwardPayload,
@@ -242,11 +248,37 @@ export class OtelForwarder implements Forwarder {
         'skill.child_skills': childSkills,
         'skill.duration_ms': node.durationMs || data.sessionDuration,
         'skill.total_tool_calls': totalToolCalls,
+
+        // Token usage for this skill (from transcript)
+        'skill.input_tokens': node.usage?.inputTokens ?? 0,
+        'skill.output_tokens': node.usage?.outputTokens ?? 0,
+        'skill.cache_read_tokens': node.usage?.cacheReadTokens ?? 0,
+        'skill.cache_creation_tokens': node.usage?.cacheCreationTokens ?? 0,
       },
     };
 
     spans.push(span);
     spanMap.set(invocationId, span);
+  }
+
+  private buildTotalUsageSpan(data: ForwardPayload): OtelSpan {
+    const u = data.totalUsage;
+    return {
+      name: 'claude_code.session_summary',
+      attributes: {
+        'span.type': 'session_summary',
+        'user.id': data.sourceId,
+        'session.id': data.sessionId,
+        'session.duration_ms': data.sessionDuration,
+        'session.stop_reason': data.stopReason ?? '',
+        // Total token usage for the entire session
+        'session.input_tokens': u.inputTokens,
+        'session.output_tokens': u.outputTokens,
+        'session.cache_read_tokens': u.cacheReadTokens,
+        'session.cache_creation_tokens': u.cacheCreationTokens,
+        'session.total_cost_usd': u.costUsd,
+      },
+    };
   }
 
   private countChildToolCalls(nestedCalls: CallNode[]): number {
@@ -270,16 +302,31 @@ export class OtelForwarder implements Forwarder {
 interface OtelSpan {
   name: string;
   attributes: {
-    'span.type': 'skill';
+    'span.type': 'skill' | 'session_summary';
     'user.id': string;
     'session.id': string;
-    'skill.name': string;
-    'skill.invocation_id': string;
+
+    // Skill span fields (when span.type === 'skill')
+    'skill.name'?: string;
+    'skill.invocation_id'?: string;
     'skill.parent_invocation_id'?: string;
-    'skill.depth': number;
-    'skill.nested_tools': string[];
-    'skill.child_skills': string[];
-    'skill.duration_ms': number;
-    'skill.total_tool_calls': number;
+    'skill.depth'?: number;
+    'skill.nested_tools'?: string[];
+    'skill.child_skills'?: string[];
+    'skill.duration_ms'?: number;
+    'skill.total_tool_calls'?: number;
+    'skill.input_tokens'?: number;
+    'skill.output_tokens'?: number;
+    'skill.cache_read_tokens'?: number;
+    'skill.cache_creation_tokens'?: number;
+
+    // Session summary fields (when span.type === 'session_summary')
+    'session.duration_ms'?: number;
+    'session.stop_reason'?: string;
+    'session.input_tokens'?: number;
+    'session.output_tokens'?: number;
+    'session.cache_read_tokens'?: number;
+    'session.cache_creation_tokens'?: number;
+    'session.total_cost_usd'?: number;
   };
 }
