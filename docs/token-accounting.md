@@ -63,6 +63,8 @@ Transcript 中的模式：
 
 **每条 assistant entry 的 token 归属于当前 skill 栈顶的 skill。**
 
+**每条 assistant entry 的 token 归属于当前 skill 栈顶的 skill。**
+
 当 Claude 执行一个 skill 时，可能产生多条 assistant 消息（多轮 tool 调用）。Transcript 按时间顺序记录，每条 `assistant` entry 都有自己的 `usage`。
 
 在遍历 transcript 时维护一个 skill 栈，每当遇到一条 `assistant` entry，就将其 token 累加到栈顶 skill。
@@ -81,6 +83,37 @@ skill A 结束
 
 **关键点：子 skill 的 token 只归属于子 skill 自身，父 skill 的 token 不包含子 skill 的消耗。**
 
+### Token 随对话推进而增长的直观示例
+
+以下是一次 `run nested-test-skill` 的 transcript 数据，展示了 token 如何随对话推进而增长：
+
+```
+ Entry      in      out   cache_read  事件
+────────────────────────────────────────────────────
+[  4]  in=  126   out=  53   cache=     0  (思考)
+[  5]  in=  126   out=  53   cache=     0  Skill(nested-test-skill)
+[ 11]  in=  126   out= 123   cache= 23408  (思考)
+[ 13]  in=  126   out= 123   cache= 23408  Skill(weather-checker)
+[ 21]  in=  126   out=  84   cache= 24257  Bash
+[ 25]  in= 1585   out=  93   cache= 23408  (思考)
+[ 27]  in= 1585   out=  93   cache= 23408  Bash
+[ 31]  in= 1708   out=  78   cache= 23408  (思考)
+[ 33]  in= 1708   out=  78   cache= 23408  Read
+[ 42]  in= 2093   out= 277   cache= 23408  (思考)
+```
+
+**解读：**
+
+- **in（inputTokens）持续增长**：126 → 1585 → 1708 → 2093。这是因为每次 API 调用的 context 越来越大：user prompt + conversation history + skill 内容。
+
+- **cache_read 稳定在约 23408**：说明 Claude Code 已经建立了 KV 缓存，后续请求大量复用。
+
+- **Token 归属规则**：每当 skill 被调用（`Skill(name)` 出现），下一个 assistant entry 的 usage 就归属到该 skill。例如：
+  - entry 13 `Skill(weather-checker)` 后，usage 归属 weather-checker
+  - entry 25 `in=1585` 时，context 里装的是 nested-test-skill 的内容，所以归属 nested-test-skill
+
+**直观理解：** 哪个 skill 的内容在当前 API 请求的 context 里，token 就归属哪个 skill。skill 内容越多，in 越大。
+
 ### Session Total
 
 Session 级别的 totalUsage 是所有 assistant entry 的 token 累加，等于所有 skill 的 token 之和加上 session 级别的 orchestration token（发动 skill 之前的决策消耗）。
@@ -93,16 +126,15 @@ session_total = Σ(skill_i.usage) + orchestration_token
 其中 orchestration_token 是根 skill 在发动任何 nested skill 之前的思考消耗。
 ```
 
-实际验证：
+实际验证（来自上面的 trace）：
 ```
-nested-test-skill [in=10941]
-  weather-checker [in=5121]
-  other tools [in=0]
+nested-test-skill:   in=9166   (包含 orchestration + nested skill 委托前消耗)
+weather-checker:     in=5133   (weather-checker 执行期间的消耗)
+sum:                in=14299
+session_total:       in=14551  (差值 252 是 root 级别 orchestration)
+```
 
-10941 ≠ 5121 + X  → X = 5820 是 parent orchestration token
-session_total = 16314
-16314 = 10941 + 5373 = nested-test-skill orchestration
-```
+差值 `252` 是整个 session 里不属于任何 skill 的纯思考消耗（entry 4 等早期 entries）。
 
 ## 实现细节
 
