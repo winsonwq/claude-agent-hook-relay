@@ -67,9 +67,20 @@ async function startRelay() {
   
   // Configure Claude Code hooks to send events to this relay
   try {
-    execSync(`cahr init --url ${RELAY_URL}`, { stdio: 'ignore' });
+    console.log('[Test] Running cahr init with URL:', RELAY_URL);
+    const result = execSync(`cahr init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8' });
+    console.log('[Test] cahr init output:', result);
+  } catch (e: unknown) {
+    const err = e as {message?: string; stderr?: string};
+    console.error('[Test] cahr init failed:', err.message || err.stderr);
+  }
+  
+  // Verify hook is configured
+  try {
+    const settings = execSync('cat ~/.claude/settings.json 2>/dev/null || echo "no settings"', { encoding: 'utf-8' });
+    console.log('[Test] Current settings:', settings.slice(0, 200));
   } catch {
-    // Ignore if cahr init fails (may already be configured)
+    console.log('[Test] Could not read settings');
   }
 }
 
