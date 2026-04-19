@@ -261,3 +261,5 @@ npm view claude-agent-hook-relay version
 - `README.md` - 简介和快速开始
 - `docs/tech.md` - 技术架构
 - `docs/api.md` - API 端点说明
+- `docs/otel-integration.md` - OpenTelemetry 集成（SkillTree → OTel Span 格式）
+- `docs/data-collection-matrix.md` - HTTP Hook vs 原生 OTel 数据能力对比

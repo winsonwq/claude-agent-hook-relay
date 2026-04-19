@@ -121,3 +121,158 @@ export class CompositeForwarder implements Forwarder {
     await Promise.allSettled(this.forwarders.map((f) => f.forward(data)));
   }
 }
+
+/**
+ * OTel Forwarder - converts SkillTree to OpenTelemetry-compatible format
+ *
+ * Converts the SkillTree into an array of SkillSpan objects that are
+ * compatible with the OTel span model. Each Skill node becomes a span
+ * with appropriate attributes for parent-child relationships.
+ *
+ * @see docs/otel-integration.md
+ */
+export class OtelForwarder implements Forwarder {
+  constructor(
+    private url: string,
+    private headers: Record<string, string> = {}
+  ) {}
+
+  async forward(data: ForwardPayload): Promise<void> {
+    if (!data.skillTree) {
+      return; // No skill to export
+    }
+
+    const spans = this.buildSpans(data);
+
+    try {
+      const response = await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.headers,
+        },
+        body: JSON.stringify(spans),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        process.stderr.write(`[OtelForwarder] HTTP ${response.status}: ${response.statusText}\n`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[OtelForwarder] Failed to forward: ${msg}\n`);
+    }
+  }
+
+  /**
+   * Convert SkillTree to OTel-compatible spans
+   */
+  private buildSpans(data: ForwardPayload) {
+    const spans: OtelSpan[] = [];
+    const tree = data.skillTree!;
+
+    // Build a map of invocation_id -> span for linking
+    const spanMap = new Map<string, OtelSpan>();
+
+    // SkillTree has 'skill' property, SkillCallNode has 'name' property
+    // Normalize to { name, toolUseId, nestedCalls, durationMs }
+    const rootNode = {
+      name: tree.skill,
+      toolUseId: tree.toolUseId,
+      nestedCalls: tree.nestedCalls,
+      durationMs: tree.durationMs,
+    };
+
+    // Process the tree recursively
+    this.processNode(rootNode, undefined, 0, data, spans, spanMap);
+
+    return spans;
+  }
+
+  private processNode(
+    node: { name: string; toolUseId: string; nestedCalls: CallNode[]; durationMs?: number },
+    parentInvocationId: string | undefined,
+    depth: number,
+    data: ForwardPayload,
+    spans: OtelSpan[],
+    spanMap: Map<string, OtelSpan>
+  ): void {
+    const invocationId = node.toolUseId || `auto-${spans.length}`;
+
+    // Collect direct tool names and child skill names
+    const nestedTools: string[] = [];
+    const childSkills: string[] = [];
+
+    for (const child of node.nestedCalls) {
+      if (child.type === 'skill') {
+        childSkills.push(child.name);
+        // Recursively process child skill
+        this.processNode(child, invocationId, depth + 1, data, spans, spanMap);
+      } else {
+        nestedTools.push(child.name);
+      }
+    }
+
+    // Calculate total tool calls (direct tools + child skill tool calls)
+    const childToolCalls = this.countChildToolCalls(node.nestedCalls);
+    const totalToolCalls = nestedTools.length + childToolCalls;
+
+    // Create the span for this skill
+    const span: OtelSpan = {
+      name: 'claude_code.skill',
+      attributes: {
+        // OTel standard
+        'span.type': 'skill',
+        'user.id': data.sourceId,
+        'session.id': data.sessionId,
+
+        // Skill-specific
+        'skill.name': node.name,
+        'skill.invocation_id': invocationId,
+        'skill.parent_invocation_id': parentInvocationId,
+        'skill.depth': depth,
+        'skill.nested_tools': nestedTools,
+        'skill.child_skills': childSkills,
+        'skill.duration_ms': node.durationMs || data.sessionDuration,
+        'skill.total_tool_calls': totalToolCalls,
+      },
+    };
+
+    spans.push(span);
+    spanMap.set(invocationId, span);
+  }
+
+  private countChildToolCalls(nestedCalls: CallNode[]): number {
+    let count = 0;
+    for (const child of nestedCalls) {
+      if (child.type === 'skill') {
+        // Child skill's tools + its children's tools
+        count += this.countChildToolCalls(child.nestedCalls);
+      } else {
+        count += 1;
+      }
+    }
+    return count;
+  }
+}
+
+/**
+ * OTel-compatible span structure
+ * @see docs/otel-integration.md#最终格式设计
+ */
+interface OtelSpan {
+  name: string;
+  attributes: {
+    'span.type': 'skill';
+    'user.id': string;
+    'session.id': string;
+    'skill.name': string;
+    'skill.invocation_id': string;
+    'skill.parent_invocation_id'?: string;
+    'skill.depth': number;
+    'skill.nested_tools': string[];
+    'skill.child_skills': string[];
+    'skill.duration_ms': number;
+    'skill.total_tool_calls': number;
+  };
+}

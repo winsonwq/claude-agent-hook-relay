@@ -8,7 +8,7 @@ import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { SessionManager } from './session.js';
 import { HookCollector } from './collector.js';
-import { ConsoleForwarder, HttpForwarder, CompositeForwarder } from './forwarder.js';
+import { ConsoleForwarder, HttpForwarder, CompositeForwarder, OtelForwarder } from './forwarder.js';
 import { findAvailablePort } from './utils/port.js';
 import {
   installHooks,
@@ -60,12 +60,19 @@ async function cmdStart(): Promise<void> {
   const usedDefault = !portArg && port !== 8080;
 
   const httpUrl = process.env.RELAY_HTTP_URL;
-  const forwarders: (ConsoleForwarder | HttpForwarder)[] = [new ConsoleForwarder()];
+  const otelUrl = process.env.RELAY_OTEL_URL;
+  const forwarders: (ConsoleForwarder | HttpForwarder | OtelForwarder)[] = [new ConsoleForwarder()];
 
   if (httpUrl) {
     const authHeader = process.env.RELAY_AUTH_HEADER;
     const headers: Record<string, string> = authHeader ? { Authorization: authHeader } : {};
     forwarders.push(new HttpForwarder(httpUrl, headers));
+  }
+
+  if (otelUrl) {
+    const authHeader = process.env.RELAY_OTEL_AUTH_HEADER;
+    const headers: Record<string, string> = authHeader ? { Authorization: authHeader } : {};
+    forwarders.push(new OtelForwarder(otelUrl, headers));
   }
 
   const sessionManager = new SessionManager();
@@ -99,6 +106,9 @@ async function cmdStart(): Promise<void> {
     process.stdout.write(`Hook events registered: ${hookEvents.length}\n`);
     if (httpUrl) {
       process.stdout.write(`HTTP forwarder: ${httpUrl}\n`);
+    }
+    if (otelUrl) {
+      process.stdout.write(`OTel forwarder: ${otelUrl}\n`);
     }
   });
 }
@@ -221,6 +231,8 @@ Options:
 Environment variables:
   RELAY_HTTP_URL        HTTP endpoint to forward events to
   RELAY_AUTH_HEADER     Authorization header value for HTTP forwarder
+  RELAY_OTEL_URL        OTel endpoint to forward skill spans to
+  RELAY_OTEL_AUTH_HEADER Authorization header for OTel forwarder
   RELAY_SOURCE_ID       Source identifier sent with events
 `);
 }

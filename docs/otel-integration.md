@@ -1,5 +1,47 @@
 # OpenTelemetry 集成设计
 
+## 实现状态
+
+> ⚠️ **注意**：SkillTree 结构变更时需同步更新 OtelForwarder
+
+### 已实现
+- ✅ `OtelForwarder` - 将 SkillTree 转换为 OTel 兼容的 Span 格式
+- ✅ 配置方式：环境变量 `RELAY_OTEL_URL`
+
+### Span 格式
+
+每个 Skill 节点转换为一个 OTel Span：
+
+```typescript
+interface OtelSpan {
+  name: 'claude_code.skill';
+  attributes: {
+    'span.type': 'skill';
+    'user.id': string;
+    'session.id': string;
+    'skill.name': string;
+    'skill.invocation_id': string;      // 唯一标识，用于关联父子
+    'skill.parent_invocation_id'?: string; // 父 Skill ID（顶级为 undefined）
+    'skill.depth': number;              // 0 = 顶级
+    'skill.nested_tools': string[];     // 直接调用的工具列表
+    'skill.child_skills': string[];     // 子 Skill 名称列表
+    'skill.duration_ms': number;
+    'skill.total_tool_calls': number;   // nested_tools.length + 子 Skill 的总调用数
+  };
+}
+```
+
+### 配置示例
+
+```bash
+# 启动 relay 并启用 OTel 转发
+RELAY_OTEL_URL=http://otel-collector:4317/v1/traces \
+RELAY_OTEL_AUTH_HEADER="Bearer xxx" \
+  cahr start
+```
+
+---
+
 ## 背景
 
 Claude Code 原生支持 OpenTelemetry 导出，但**不包含 Skill 调用链追踪**。Relay 可以作为 OTel 数据的**补充来源**，将 Skill 树形调用链转换为 OTel 兼容格式。
