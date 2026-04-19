@@ -42,11 +42,15 @@ const RELAY_URL = `http://localhost:${RELAY_PORT}`;
 let relayProcess: ReturnType<typeof spawn> | null = null;
 
 async function startRelay() {
+  // Find node executable
+  const nodePath = process.execPath;
+  const projectRoot = process.cwd();
+  
   try { execSync('fuser -k 8080/tcp 2>/dev/null || true'); } catch {}
   await sleep(500);
 
-  relayProcess = spawn('node', ['dist/index.js', 'start'], {
-    cwd: '/home/aqiu/.openclaw/workspace/claude-agent-hook-relay',
+  relayProcess = spawn(nodePath, ['dist/index.js', 'start'], {
+    cwd: projectRoot,
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
@@ -71,8 +75,9 @@ async function stopRelay() {
 
 function runClaude(command: string): string {
   try {
-    return execSync(`timeout 30 claude -p "${command}" 2>&1`, {
-      cwd: '/home/aqiu/.openclaw/workspace',
+    // Use npx to run claude if available, or fall back to direct command
+    const claudeCmd = process.env.CLAUDE_CMD || 'claude';
+    return execSync(`timeout 30 ${claudeCmd} -p "${command}" 2>&1`, {
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024
     }).toString();
