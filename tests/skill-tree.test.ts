@@ -40,6 +40,11 @@ interface SessionResponse {
 const RELAY_PORT = 8080;
 const RELAY_URL = `http://localhost:${RELAY_PORT}`;
 
+// Debug: Print relevant env vars
+console.log('[Test] ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? 'set' : 'NOT SET');
+console.log('[Test] ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL || 'NOT SET');
+console.log('[Test] ANTHROPIC_MODEL:', process.env.ANTHROPIC_MODEL || 'NOT SET');
+
 let relayProcess: ReturnType<typeof spawn> | null = null;
 
 async function startRelay() {
@@ -88,7 +93,7 @@ function runClaude(command: string): string {
   try {
     // Use npx to run claude if available, or fall back to direct command
     const claudeCmd = process.env.CLAUDE_CMD || 'claude';
-    return execSync(`timeout 30 ${claudeCmd} -p "${command}" 2>&1`, {
+    return execSync(`timeout 60 ${claudeCmd} -p "${command}" 2>&1`, {
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024
     }).toString();
