@@ -28,15 +28,13 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Authenticate Claude Code
+      - name: Set Claude Code environment
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
         run: |
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            claude auth add --api-key "$ANTHROPIC_API_KEY"
-          fi
+          echo "Claude Code environment configured"
 
       - name: Setup test skills
         env:
