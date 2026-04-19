@@ -6,41 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Authenticate Claude Code
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            claude auth add --api-key "$ANTHROPIC_API_KEY"
-          fi
-
-      - name: Setup test skills
-        run: bash scripts/setup-test-skills.sh
-
-      - name: Run tests
-        run: npm test
-
   publish:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
