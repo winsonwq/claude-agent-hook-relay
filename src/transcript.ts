@@ -206,6 +206,8 @@ export class TranscriptReader {
     }
 
     const skillStack: StackEntry[] = [];
+    // Track bare tool calls when no skill is on the stack
+    const bareTools: ToolCallNode[] = [];
 
     const popDoneSkills = () => {
       while (skillStack.length > 1 && skillStack[skillStack.length - 1].isDone) {
@@ -237,11 +239,11 @@ export class TranscriptReader {
           const toolName = toolUse.name as string;
           const toolInput = toolUse.input as Record<string, unknown> | undefined;
           const skillName = typeof toolInput?.skill === 'string' ? toolInput.skill : null;
+          const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
 
           if (toolName === 'Skill' && skillName) {
             popDoneSkills();
 
-            const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
             const skillNode: SkillCallNode = {
               type: 'skill',
               name: skillName,
@@ -263,12 +265,16 @@ export class TranscriptReader {
               type: 'tool',
               name: toolName,
               toolUseId: toolId,
+              startTime: entryTs,
               ...toolInfo,
             };
 
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].node.nestedCalls.push(toolNode);
               skillStack[skillStack.length - 1].pendingTools++;
+            } else {
+              // No skill on stack - this is a bare tool call
+              bareTools.push(toolNode);
             }
           }
         }
@@ -299,7 +305,19 @@ export class TranscriptReader {
     }
 
     // Return the root skill (first skill on stack)
-    if (skillStack.length === 0) return null;
+    if (skillStack.length === 0) {
+      // No real skills were called
+      // If we have bare tool calls, create a synthetic <no-skill> root
+      if (bareTools.length > 0) {
+        return {
+          skill: '<no-skill>',
+          toolUseId: '',
+          startTime: bareTools[0].startTime ?? Date.now(),
+          nestedCalls: bareTools,
+        };
+      }
+      return null;
+    }
 
     const root = skillStack[0].node;
     return {

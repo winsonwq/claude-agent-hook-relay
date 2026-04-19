@@ -247,6 +247,17 @@ describe('Skill Tree Output Tests', () => {
     expect(nestedUsage?.inputTokens).toBeGreaterThan(100);
     expect(nestedUsage?.cacheReadTokens).toBeGreaterThan(0);
 
+  });
 
+  it('bare-tools: should capture tool calls without any skill', async () => {
+    // Run a command that only uses tools without loading any skill
+    runClaude('list all files in /tmp');
+
+    const session = await waitForSession();
+    // With the fix, bare tool calls should create a synthetic <no-skill> root
+    expect(session?.skillTree).toBeDefined();
+    expect(session?.skillTree?.skill).toBe('<no-skill>');
+    // Should have at least one nested tool call
+    expect(session?.skillTree?.nestedCalls.length).toBeGreaterThan(0);
   });
 });

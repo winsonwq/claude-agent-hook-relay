@@ -32,6 +32,7 @@ export interface ToolCallNode {
   query?: string;      // WebSearch
   content?: string;    // Edit
   // etc.
+  startTime?: number;  // When this tool was called (for synthetic <no-skill> root)
   durationMs?: number;
   usage?: ModelUsage;  // Token usage for this tool call
 }
