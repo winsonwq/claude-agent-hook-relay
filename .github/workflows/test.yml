@@ -39,6 +39,4 @@ jobs:
         run: bash scripts/setup-test-skills.sh
 
       - name: Run tests
-        env:
-          CLAUDE_CMD: claude
         run: npm test

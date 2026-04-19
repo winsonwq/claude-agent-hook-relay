@@ -64,6 +64,13 @@ async function startRelay() {
     await sleep(500);
     retries--;
   }
+  
+  // Configure Claude Code hooks to send events to this relay
+  try {
+    execSync(`cahr init --url ${RELAY_URL}`, { stdio: 'ignore' });
+  } catch {
+    // Ignore if cahr init fails (may already be configured)
+  }
 }
 
 async function stopRelay() {
