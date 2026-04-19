@@ -1,131 +1,132 @@
 # Claude Agent Hook Relay - 测试结果
 
 ## 测试时间
-2026-04-18（初始测试）
-2026-04-19（结构修复：打平 skills）
+- 2026-04-18：初始测试，验证嵌套 Skill 追踪算法
+- 2026-04-19：重构为单一入口树形结构，优化输出格式
 
 ## 测试场景矩阵
 
 | # | 场景 | 描述 | 期望 | 实际 | 状态 |
 |---|------|------|------|------|------|
-| 1 | 单层 Skill | 直接调用一个 skill | weather-checker: [Bash] | ✅ 正确 | ✅ PASS |
-| 2 | 两层嵌套 | nested-test-skill → weather-checker | weather-checker: [Bash], nested-test-skill: [Skill, Bash, Read] | weather-checker: [Bash], nested-test-skill: [Bash, Read, Read] | ✅ PASS |
-| 3 | 三层嵌套 | level-3-skill → level-2-skill → level-1-skill | 各层正确归因 | level-1: [Bash], level-2: [Bash], level-3: [Bash] | ✅ PASS |
-| 4 | 连续调用同名 Skill | A → B → A（顺序调用两次 B） | B: 1x[Bash], A: 2x[Bash] | B: 1x[Bash], A: 1x[Bash] | ⚠️ PARTIAL |
+| 1 | 单层 Skill | 直接调用一个 skill | skillTree 包含 skill 和其工具调用 | ✅ 正确 | ✅ PASS |
+| 2 | 两层嵌套 | nested-test-skill → weather-checker | 树形展示嵌套关系 | ✅ 正确 | ✅ PASS |
+| 3 | 三层嵌套 | level-3-skill → level-2-skill → level-1-skill | 完整的三层树形结构 | ✅ 正确 | ✅ PASS |
+| 4 | 连续调用同名 Skill | A → B → A（顺序调用两次 B） | 两个 B 都正确归因到各自的父 Skill | ✅ 正确 | ✅ PASS |
 
-## 算法说明
+## 输出格式
 
-### Deferred-Pop 算法
-
-核心逻辑：
-1. Skill 调用 → push 到栈
-2. 非 Skill 工具调用 → 归到栈顶 skill
-3. 非 Skill 工具结果返回 → pending--
-4. pending=0 时 → 标记 isDone=true（**不立即 pop**）
-5. **下一个工具进来时**：先 pop done skills，再归因
-
-关键洞察：
-- Skill 返回 "Launching skill: X" 时，skill 刚启动还没真正执行完
-- Skill 的脚本会继续执行后续命令
-- 需要延迟 pop，等下一个工具进来才能确认上一个 skill 是否真的完成了
-
-### 示例：两层嵌套
-
+### 单层 Skill
 ```
-Entry 5 : PUSH nested-test-skill | stack: nested-test-skill
-Entry 7 : SKILL result for nested-test-skill (Launching)
-Entry 13 : PUSH weather-checker | stack: nested-test-skill -> weather-checker
-Entry 15 : SKILL result for weather-checker (Launching)
-Entry 20 : Bash -> weather-checker
-Entry 22 : Bash result -> pending=0, isDone=true
-Entry 26 : Bash -> pop done (weather-checker), then nested-test-skill ✅
+📋 weather-checker
+└── 🔧 Bash: echo 'Weather check: ' && date
+```
+
+### 两层嵌套
+```
+📋 nested-test-skill
+├── 🤖 Skill: weather-checker
+│   └── 🔧 Bash: echo 'Weather check: ' && date
+├── 🔧 Bash: date
+└── 🔧 Read: example.txt
+```
+
+### 三层嵌套
+```
+📋 level-3-skill
+├── 🤖 Skill: level-2-skill
+│   ├── 🤖 Skill: level-1-skill
+│   │   └── 🔧 Bash: date
+│   └── 🔧 Bash: echo "level2-step2"
+└── 🔧 Bash: echo "level3-step3"
+```
+
+### 连续调用同名 Skill
+```
+📋 sequential-skill
+├── 🤖 Skill: weather-checker
+│   └── 🔧 Bash: echo 'Weather check: ' && date
+├── 🔧 Bash: echo "after-first-weather"
+└── 🤖 Skill: weather-checker
+    └── 🔧 Bash: echo 'Weather check: ' && date
+```
+
+## 实现说明
+
+### 架构
+
+1. **实时 Hook 收集**：通过 Hook 事件获取 Skill 调用和工具调用
+2. **Transcript 分析**：在 Stop 事件时读取 transcript 文件，利用完整的上下文重建调用链
+3. **树形结构**：单一入口（最外层 Skill）+ 递归嵌套（Skill/Tool 节点）
+
+### 数据结构
+
+```typescript
+interface SkillTree {
+  skill: string;           // 入口 Skill 名称
+  toolUseId: string;       // 入口 Skill 的 tool_use_id
+  startTime: number;
+  nestedCalls: CallNode[]; // 子调用列表
+}
+
+type CallNode = SkillCallNode | ToolCallNode;
+
+interface SkillCallNode {
+  type: 'skill';
+  name: string;
+  toolUseId: string;
+  startTime: number;
+  nestedCalls: CallNode[];
+}
+
+interface ToolCallNode {
+  type: 'tool';
+  name: string;
+  toolUseId?: string;
+  // 工具特定信息
+  command?: string;  // Bash
+  file?: string;     // Read
+  pattern?: string;  // Glob
+  url?: string;      // WebFetch
+  query?: string;    // WebSearch
+}
 ```
 
 ## 已知限制
 
-### 1. 连续调用场景的归因问题
+### 1. Token 统计未获取
+- Hook 事件的 `body.usage` 字段为空
+- Transcript 文件中的 usage 格式与预期不符
+- 导致 `totalUsage` 全为 0
 
-当 skill A 顺序调用 skill B，然后继续执行自己的命令时，A 的命令可能被错误归到 B。
-
-示例：sequential-skill 调用 weather-checker，然后执行 `echo "after-first-weather"`
-- `echo "after-first-weather"` 被错误归到 weather-checker（应该归 sequential-skill）
-- `echo "done"` 正确归到 sequential-skill
-
-原因：weather-checker launching 后，sequential-skill 继续执行（skill launching 不阻塞外层 skill），但 weather-checker 还在栈上，导致 sequential-skill 的命令被归到 weather-checker。
-
-这是 skill 执行模型和算法设计的根本冲突：**无法区分 skill launching 后、外层 skill 继续执行时的工具到底属于谁**。
-
-### 2. 同名 Skill 多个实例无法区分
-
-当同一个 skill 被调用多次时，nestedCalls 是按 skill name 聚合的，所有实例共享相同的数据。
-
-示例：weather-checker 被调用两次
-```
-实际: weather-checker: [Bash, Bash] (两次调用共享)
-期望: weather-checker-instance-1: [Bash], weather-checker-instance-2: [Bash]
-```
-
-### 3. Skill 调用本身不计入 nestedCalls
-
-当 skill A 调用 skill B 时，"Skill" 这个工具调用不计入 A 的 nestedCalls。
-
-```
-期望 nested-test-skill: [Skill, Bash, Read]
-实际 nested-test-skill: [Bash, Read]
-```
-
-原因：算法把 Skill 调用视为栈管理操作，不是嵌套的工具调用。
+### 2. Session 重复输出
+- Stop 和 SessionEnd 事件都会触发转发
+- 已通过 `processedSessions` Set 做去重
+- 实际只输出一次
 
 ## 验证方法
 
 ```bash
 # 启动 relay
 cd ~/.openclaw/workspace/claude-agent-hook-relay
-fuser -k 8080/tcp 2>/dev/null; sleep 1
-npm run build && node dist/index.js start > /tmp/relay-test.log 2>&1 &
-sleep 2
+fuser -k 8080/tcp 2>/dev/null
+npm run build && node dist/index.js start
 
 # 运行测试 skill
-claude -p "run <skill-name>"
-
-# 查看 relay 输出
-cat /tmp/relay-test.log | tail -3
+claude -p "run weather-checker"
+claude -p "run nested-test-skill"
+claude -p "run level-3-skill"
+claude -p "run sequential-skill"
 ```
 
 ## Skill 测试用例
 
-### 单层：weather-checker
-```bash
-claude -p "run weather-checker"
-```
+测试 skills 已通过 `cahr install-test-skill` 安装到 `~/.claude/skills/`：
 
-### 两层嵌套：nested-test-skill
-```bash
-claude -p "run nested-test-skill"
-```
-
-### 三层嵌套：level-3-skill
-需要创建 level-2-skill 和 level-1-skill：
-```bash
-# level-1-skill
-mkdir -p ~/.claude/skills/level-1-skill
-# SKILL.md: Run: date
-
-# level-2-skill  
-mkdir -p ~/.claude/skills/level-2-skill
-# SKILL.md: Call level-1-skill, Run: echo "level2-step2"
-
-# level-3-skill
-mkdir -p ~/.claude/skills/level-3-skill
-# SKILL.md: Call level-2-skill, Run: echo "step2"
-```
-
-### 连续调用：sequential-skill
-```bash
-mkdir -p ~/.claude/skills/sequential-skill
-# SKILL.md:
-# 1. Call weather-checker
-# 2. Run: echo "after-first-weather"
-# 3. Call weather-checker
-# 4. Run: echo "done"
-```
+| Skill | 描述 |
+|-------|------|
+| weather-checker | 单层：调用 Bash |
+| nested-test-skill | 两层：调用 weather-checker + Bash + Read |
+| level-1-skill | 三层：第一层 |
+| level-2-skill | 三层：调用 level-1-skill |
+| level-3-skill | 三层：调用 level-2-skill |
+| sequential-skill | 连续调用：两次 weather-checker |

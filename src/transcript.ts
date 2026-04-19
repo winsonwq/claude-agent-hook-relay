@@ -2,6 +2,7 @@
 
 import * as fs from 'fs';
 import * as readline from 'readline';
+import type { SkillTree, SkillCallNode, ToolCallNode } from './types.js';
 
 export interface TranscriptEntry {
   type: 'user' | 'assistant' | 'system' | 'attachment';
@@ -132,31 +133,16 @@ export class TranscriptReader {
   }
 
   /**
-   * Analyze transcript to reconstruct nested skill call chains.
+   * Analyze transcript to build a unified skill tree.
    *
-   * Algorithm:
-   * 1. Track a skill stack with pending tool counts and done status
-   * 2. When a non-Skill tool returns with pending=0, mark that skill as DONE (deferred pop)
-   * 3. When the NEXT tool call arrives, FIRST pop done skills from top of stack, THEN attribute
-   * This correctly handles the case where a skill's script continues after one command completes.
-   *
-   * Returns: Map<skillToolUseId, nestedCalls>
-   * - Key is the tool_use_id of the Skill call
-   * - Value is array of nested tool names called by that skill
+   * Returns a single SkillTree rooted at the first (outermost) skill,
+   * with nested calls represented as a tree of CallNodes (both SkillCallNodes and ToolCallNodes).
    */
-  static async analyzeNestedCalls(transcriptPath: string): Promise<Map<string, string[]>> {
+  static async analyzeNestedCalls(transcriptPath: string): Promise<SkillTree | null> {
     const entries = await this.read(transcriptPath);
-    const result = new Map<string, string[]>();
 
-    interface SkillEntry {
-      skill: string;
-      toolUseId: string;  // tool_use_id of this Skill call
-      pendingTools: number;
-      isDone: boolean;
-    }
-
-    // Build tool_use_id -> tool_use info map
-    const toolUseById = new Map<string, { name: string; skill: string | null }>();
+    // Build tool_use_id -> { name, input, skill }
+    const toolUseById = new Map<string, { name: string; input?: Record<string, unknown>; skill: string | null }>();
     for (const entry of entries) {
       if (entry.type === 'assistant') {
         const content = this.getMessageContent(entry);
@@ -168,18 +154,58 @@ export class TranscriptReader {
               const name = toolUse.name as string;
               const input = toolUse.input as Record<string, unknown> | undefined;
               const skillName = typeof input?.skill === 'string' ? input.skill : null;
-              toolUseById.set(id, { name, skill: skillName });
+              toolUseById.set(id, { name, input, skill: skillName });
             }
           }
         }
       }
     }
 
-    const skillStack: SkillEntry[] = [];
-    // Map: non-skill tool_use_id -> skill tool_use_id (which Skill call owns this tool)
-    const toolOwnership = new Map<string, string>();
+    // Helper to extract tool-specific info
+    const extractToolInfo = (toolName: string, input?: Record<string, unknown>): Partial<ToolCallNode> => {
+      const info: Partial<ToolCallNode> = {};
+      if (!input) return info;
 
-    // Pop done skills from top of stack, keeping at least one
+      switch (toolName) {
+        case 'Bash':
+          if (typeof input.command === 'string') info.command = input.command;
+          break;
+        case 'Read':
+          if (typeof input.file_path === 'string') info.file = input.file_path;
+          break;
+        case 'Write':
+        case 'Edit':
+          if (typeof input.file_path === 'string') info.file = input.file_path;
+          if (typeof input.content === 'string') info.content = input.content.substring(0, 100);
+          break;
+        case 'Glob':
+          if (typeof input.pattern === 'string') info.pattern = input.pattern;
+          break;
+        case 'Grep':
+          if (typeof input.pattern === 'string') info.pattern = input.pattern;
+          if (typeof input.path === 'string') info.file = input.path;
+          break;
+        case 'WebFetch':
+          if (typeof input.url === 'string') info.url = input.url;
+          break;
+        case 'WebSearch':
+          if (typeof input.query === 'string') info.query = input.query;
+          break;
+        // Add more tools as needed
+      }
+      return info;
+    };
+
+    interface StackEntry {
+      node: SkillCallNode;
+      pendingTools: number;
+      isDone: boolean;
+    }
+
+    const skillStack: StackEntry[] = [];
+    // Map: tool_use_id -> stack index (which skill owns this tool)
+    const toolOwnership = new Map<string, number>();
+
     const popDoneSkills = () => {
       while (skillStack.length > 1 && skillStack[skillStack.length - 1].isDone) {
         skillStack.pop();
@@ -196,21 +222,45 @@ export class TranscriptReader {
           const toolUse = item as Record<string, unknown>;
           const toolId = toolUse.id as string;
           const toolName = toolUse.name as string;
-          const input = toolUse.input as Record<string, unknown> | undefined;
-          const skillName = typeof input?.skill === 'string' ? input.skill : null;
+          const toolInput = toolUse.input as Record<string, unknown> | undefined;
+          const skillName = typeof toolInput?.skill === 'string' ? toolInput.skill : null;
 
           if (toolName === 'Skill' && skillName) {
-            // Skill tool call - pop done skills first, then push
+            // Skill call - pop done skills, then create node and add to parent's nestedCalls
             popDoneSkills();
-            skillStack.push({ skill: skillName, toolUseId: toolId, pendingTools: 0, isDone: false });
-          } else {
-            // Other tool - pop done skills FIRST, then attribute
-            popDoneSkills();
-            const ownerSkillToolUseId = skillStack.length > 0 ? skillStack[skillStack.length - 1].toolUseId : null;
-            toolOwnership.set(toolId, ownerSkillToolUseId || 'NO_OWNER');
+
+            const skillNode: SkillCallNode = {
+              type: 'skill',
+              name: skillName,
+              toolUseId: toolId,
+              startTime: Date.now(), // Transcript doesn't have precise timing
+              nestedCalls: [],
+            };
+
+            // Add to parent's nestedCalls
             if (skillStack.length > 0) {
+              skillStack[skillStack.length - 1].node.nestedCalls.push(skillNode);
+            }
+
+            // Push onto stack
+            skillStack.push({ node: skillNode, pendingTools: 0, isDone: false });
+          } else {
+            // Tool call - pop done skills first, then attribute to current skill
+            popDoneSkills();
+
+            const toolInfo = extractToolInfo(toolName, toolInput);
+            const toolNode: ToolCallNode = {
+              type: 'tool',
+              name: toolName,
+              toolUseId: toolId,
+              ...toolInfo,
+            };
+
+            if (skillStack.length > 0) {
+              skillStack[skillStack.length - 1].node.nestedCalls.push(toolNode);
               skillStack[skillStack.length - 1].pendingTools++;
             }
+            toolOwnership.set(toolId, skillStack.length > 0 ? skillStack.length - 1 : -1);
           }
         }
       }
@@ -226,10 +276,9 @@ export class TranscriptReader {
           const toolUse = toolUseById.get(toolUseId);
 
           if (toolUse?.skill) {
-            // Skill tool result - just log (Launching status is handled by the fact
-            // that we don't increment pending for skill calls)
+            // Skill result - nothing to do (Launching status)
           } else {
-            // Non-skill tool result - decrement pending
+            // Tool result - decrement pending and check if done
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].pendingTools--;
               if (skillStack[skillStack.length - 1].pendingTools === 0) {
@@ -241,21 +290,15 @@ export class TranscriptReader {
       }
     }
 
-    // Aggregate tool ownership by skill tool_use_id
-    const ownedTools = new Map<string, string[]>();
-    for (const [toolId, skillToolUseId] of toolOwnership) {
-      if (!ownedTools.has(skillToolUseId)) ownedTools.set(skillToolUseId, []);
-      const toolUse = toolUseById.get(toolId);
-      ownedTools.get(skillToolUseId)!.push(toolUse?.name || toolId);
-    }
+    // Return the root skill (first skill on stack)
+    if (skillStack.length === 0) return null;
 
-    // Convert to result format (key is skill tool_use_id)
-    for (const [skillToolUseId, tools] of ownedTools) {
-      if (skillToolUseId !== 'NO_OWNER') {
-        result.set(skillToolUseId, tools);
-      }
-    }
-
-    return result;
+    const root = skillStack[0].node;
+    return {
+      skill: root.name,
+      toolUseId: root.toolUseId,
+      startTime: root.startTime,
+      nestedCalls: root.nestedCalls,
+    };
   }
 }

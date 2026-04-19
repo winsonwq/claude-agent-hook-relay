@@ -6,13 +6,42 @@ export interface ModelUsage {
   costUsd: number;
 }
 
+// Rich tree structure for nested calls
+export type CallNode = SkillCallNode | ToolCallNode;
+
+export interface SkillCallNode {
+  type: 'skill';
+  name: string;
+  toolUseId: string;
+  startTime: number;
+  endTime?: number;
+  durationMs?: number;
+  nestedCalls: CallNode[];
+}
+
+export interface ToolCallNode {
+  type: 'tool';
+  name: string;
+  toolUseId?: string;
+  // Tool-specific info
+  command?: string;    // Bash
+  file?: string;       // Read
+  pattern?: string;    // Glob / Grep
+  url?: string;        // WebFetch
+  query?: string;      // WebSearch
+  content?: string;    // Edit
+  // etc.
+  durationMs?: number;
+}
+
 export interface SkillInvocation {
   skill: string;
   startTime: number;
   endTime?: number;
   durationMs?: number;
-  nestedCalls: string[];
+  nestedCalls: CallNode[];
   toolUseId?: string;
+  isDone?: boolean;
 }
 
 export interface HookEvent {
@@ -42,10 +71,20 @@ export interface Forwarder {
   forward(data: ForwardPayload): Promise<void>;
 }
 
+// Single entry point skill tree (unified view)
+export interface SkillTree {
+  skill: string;
+  toolUseId: string;
+  startTime: number;
+  endTime?: number;
+  durationMs?: number;
+  nestedCalls: CallNode[];
+}
+
 export interface ForwardPayload {
   sessionId: string;
   sourceId: string;
-  skillInvocations: SkillInvocation[];
+  skillTree: SkillTree | null;  // Single entry point, null if no skill was called
   totalUsage: ModelUsage;
   allEvents: HookEvent[];
   sessionDuration: number;

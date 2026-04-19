@@ -1,25 +1,82 @@
-import type { ForwardPayload, Forwarder } from './types.js';
+import type { ForwardPayload, Forwarder, CallNode } from './types.js';
 
 /**
- * Console Forwarder - outputs to stdout
+ * Console Forwarder - outputs to stdout with friendly formatting
  */
 export class ConsoleForwarder implements Forwarder {
+  // Track which sessions we've already processed to avoid duplicate output
+  private processedSessions = new Set<string>();
+
   async forward(data: ForwardPayload): Promise<void> {
-    const summary = {
-      sessionId: data.sessionId,
-      sourceId: data.sourceId,
-      skillCount: data.skillInvocations.length,
-      totalUsage: data.totalUsage,
-      durationMs: data.sessionDuration,
-      stopReason: data.stopReason,
-      skillList: data.skillInvocations.map((s) => ({
-        skill: s.skill,
-        durationMs: s.durationMs,
-        nestedCalls: s.nestedCalls,
-      })),
+    // Skip if we've already processed this session (avoid duplicate Stop/SessionEnd)
+    if (this.processedSessions.has(data.sessionId)) {
+      return;
+    }
+    this.processedSessions.add(data.sessionId);
+
+    // Helper to format a call node recursively
+    const formatCallNode = (node: CallNode, indent: string, isLast: boolean): string[] => {
+      const prefix = isLast ? '└── ' : '├── ';
+      const nextIndent = indent + (isLast ? '    ' : '│   ');
+      const lines: string[] = [];
+
+      if (node.type === 'skill') {
+        lines.push(`${indent}${prefix}🤖 Skill: ${node.name}`);
+        for (let i = 0; i < node.nestedCalls.length; i++) {
+          const child = node.nestedCalls[i];
+          lines.push(...formatCallNode(child, nextIndent, i === node.nestedCalls.length - 1));
+        }
+      } else {
+        // Tool node
+        let info = '';
+        if (node.command) {
+          info = `: ${node.command}`;
+        } else if (node.file) {
+          info = `: ${node.file}`;
+        } else if (node.url) {
+          info = `: ${node.url}`;
+        } else if (node.pattern) {
+          info = `: ${node.pattern}`;
+        } else if (node.query) {
+          info = `: ${node.query}`;
+        } else if (node.content) {
+          info = `: ${node.content.substring(0, 50)}...`;
+        }
+        lines.push(`${indent}${prefix}🔧 ${node.name}${info}`);
+      }
+
+      return lines;
     };
-    // Use process.stdout.write to avoid eslint no-console warning in prod
-    process.stdout.write(`[Relay] ${JSON.stringify(summary)}\n`);
+
+    // Build output
+    const lines: string[] = [];
+    lines.push('─'.repeat(60));
+
+    if (data.skillTree) {
+      const tree = data.skillTree;
+      lines.push(`📋 ${tree.skill}`);
+      for (let i = 0; i < tree.nestedCalls.length; i++) {
+        const child = tree.nestedCalls[i];
+        lines.push(...formatCallNode(child, '', i === tree.nestedCalls.length - 1));
+      }
+    } else {
+      lines.push('📋 (无 Skill 调用)');
+    }
+
+    lines.push('─'.repeat(60));
+    lines.push(`⏱️  耗时: ${data.sessionDuration}ms`);
+
+    if (data.totalUsage.inputTokens > 0) {
+      lines.push(`📊 Token: in=${data.totalUsage.inputTokens} out=${data.totalUsage.outputTokens} cache=${data.totalUsage.cacheReadTokens}`);
+    } else {
+      lines.push(`📊 Token: (未获取到)`);
+    }
+
+    if (data.stopReason) {
+      lines.push(`📌 停止原因: ${data.stopReason}`);
+    }
+
+    process.stdout.write(`[Relay]\n${lines.join('\n')}\n\n`);
   }
 }
 

@@ -64,20 +64,20 @@ cahr uninstall # 移除 Claude Code hooks 配置
 cahr status    # 查看 cahr 状态
 ```
 
-### Phase 2 - 增强分析（规划中）
+### Phase 2 - 增强分析（部分完成）
+
+- [x] **Skill 深度追踪** ✅ 已完成
+  - 单一入口树形结构
+  - 嵌套调用链完整记录
+  - 每个 Skill 的耗时统计
 
 - [ ] **多终端标识增强**
   - X-Source-ID（人工指定）
   - machine-id（自动采集）
   - IP / Hostname
 
-- [ ] **Skill 深度追踪**
-  - 嵌套调用链完整记录
-  - 每个 Skill 的耗时统计
-  - Skill 被触发的次数
-
 - [ ] **Usage 聚合**
-  - input / output / cache tokens 汇总
+  - input / output / cache tokens 汇总（Hook 事件暂未获取到）
   - 预估 cost 计算
   - 按 Skill 维度拆分
 

@@ -97,6 +97,8 @@ cahr install-test-skill
 
 这会把两个测试 Skill（`nested-test-skill` 和 `weather-checker`）安装到 `~/.claude/skills/`。
 
+其他测试 Skill（`level-3-skill`、`sequential-skill`）需要手动创建，参见 [TEST-RESULTS.md](TEST-RESULTS.md)。
+
 **第三步：用 Claude Code 触发工具调用**
 
 在另一个终端运行：
@@ -114,17 +116,35 @@ claude -p "run nested-test-skill"
 回到 cahr 终端，应该能看到类似这样的输出：
 
 ```
-# 基础验证（只有工具调用）：
-[Relay] {"sessionId":"...","skillCount":0,"skillList":[]}
-
-# Skill 追踪验证（嵌套 Skill）：
-[Relay] {"sessionId":"...","skillCount":2,"skillList":[
-  {"skill":"weather-checker","nestedCalls":["Bash"]},
-  {"skill":"nested-test-skill","nestedCalls":["Bash","Read","Read"]}
-]}
+[Relay]
+────────────────────────────────────────────────────────────
+📋 weather-checker
+└── 🔧 Bash: echo 'Weather check: ' && date
+────────────────────────────────────────────────────────────
+⏱️  耗时: 7966ms
+📊 Token: (未获取到)
 ```
 
-`skillCount` 大于 0 表示有 Skill 调用发生。嵌套的 Skill 会显示在 `nestedCalls` 中。
+**嵌套 Skill 示例**：
+
+```
+[Relay]
+────────────────────────────────────────────────────────────
+📋 nested-test-skill
+├── 🤖 Skill: weather-checker
+│   └── 🔧 Bash: echo 'Weather check: ' && date
+├── 🔧 Bash: date
+└── 🔧 Read: /home/aqiu/.claude/skills/nested-test-skill/example.txt
+────────────────────────────────────────────────────────────
+⏱️  耗时: 17473ms
+📊 Token: (未获取到)
+```
+
+输出说明：
+- `📋` 开头的是入口 Skill 名称
+- `🤖` 表示 Skill 节点（嵌套的子 Skill）
+- `🔧` 表示 Tool 节点（调用的工具）
+- Tool 节点会显示工具特定信息：`command`、`file`、`url` 等
 
 **第五步：停止 cahr**
 

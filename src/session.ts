@@ -1,4 +1,4 @@
-import type { Session, SkillInvocation, HookEvent } from './types.js';
+import type { Session, SkillInvocation, HookEvent, CallNode, ToolCallNode } from './types.js';
 
 export class SessionManager {
   private sessions = new Map<string, Session>();
@@ -44,18 +44,39 @@ export class SessionManager {
 
     const skill = session.skillStack.pop();
     if (skill) {
-      skill.endTime = timestamp;
-      skill.durationMs = skill.endTime - skill.startTime;
+      // Don't overwrite if already set (deferred-pop case)
+      if (!skill.isDone) {
+        skill.endTime = timestamp;
+        skill.durationMs = skill.endTime - skill.startTime;
+      }
       session.completedSkills.push(skill);
     }
     return skill;
   }
 
-  pushNestedCall(sessionId: string, toolName: string): void {
+  pushNestedCall(sessionId: string, toolName: string, toolUseId?: string, toolInput?: Record<string, unknown>): void {
     const session = this.sessions.get(sessionId);
     const currentSkill = session?.skillStack[session.skillStack.length - 1];
     if (!currentSkill) return;
-    currentSkill.nestedCalls.push(toolName);
+
+    const node: ToolCallNode = {
+      type: 'tool',
+      name: toolName,
+      toolUseId,
+    };
+
+    // Add tool-specific info
+    if (toolInput) {
+      if (toolName === 'Bash' && typeof toolInput.command === 'string') {
+        node.command = toolInput.command;
+      } else if (toolName === 'Read' && typeof toolInput.file_path === 'string') {
+        node.file = toolInput.file_path;
+      } else if (toolName === 'Glob') {
+        node.pattern = typeof toolInput.pattern === 'string' ? toolInput.pattern : undefined;
+      }
+    }
+
+    currentSkill.nestedCalls.push(node);
   }
 
   addEvent(sessionId: string, event: HookEvent): void {

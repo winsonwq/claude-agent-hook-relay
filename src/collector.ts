@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import type { HookEvent, ForwardPayload, ModelUsage, Forwarder } from './types.js';
+import type { HookEvent, ForwardPayload, ModelUsage, Forwarder, SkillTree } from './types.js';
 import { SessionManager } from './session.js';
 import { TranscriptReader } from './transcript.js';
 
@@ -70,6 +70,11 @@ export class HookCollector {
   }
 
   private handlePreToolUse(session: ReturnType<SessionManager['getOrCreate']>, event: HookEvent): void {
+    // NOTE: Real-time nested call tracking doesn't work reliably because
+    // PostToolUse(Skill) fires before the skill's nested tools run.
+    // We rely on transcript analysis in handleStop instead.
+    // Real-time tracking is only used to record skill invocations.
+
     const toolInput = event.toolInput as Record<string, unknown> | undefined;
     const skillName = typeof toolInput?.skill === 'string' ? toolInput.skill
       : typeof toolInput?.name === 'string' ? toolInput.name
@@ -82,9 +87,6 @@ export class HookCollector {
         event.toolUseId || '',
         event.timestamp
       );
-    } else if (session.skillStack.length > 0) {
-      // Track nested tool calls under the current skill
-      this.sessionManager.pushNestedCall(session.sessionId, event.toolName || '');
     }
   }
 
@@ -114,7 +116,8 @@ export class HookCollector {
       costUsd: typeof costField === 'number' ? costField : 0,
     };
 
-    // Enrich with transcript-based token usage if available
+    // Enrich with transcript-based token usage and nested calls if available
+    let skillTree: SkillTree | null = null;
     if (event.transcriptPath) {
       try {
         const transcriptUsage = await TranscriptReader.getSessionUsage(event.transcriptPath);
@@ -123,15 +126,8 @@ export class HookCollector {
         modelUsage.cacheReadTokens = transcriptUsage.cacheReadTokens || modelUsage.cacheReadTokens;
         modelUsage.cacheCreationTokens = transcriptUsage.cacheCreationTokens || modelUsage.cacheCreationTokens;
 
-        // Analyze nested calls from transcript using deferred-pop algorithm
-        const nestedCallsMap = await TranscriptReader.analyzeNestedCalls(event.transcriptPath);
-        for (const skill of session.completedSkills) {
-          // Match by toolUseId (the tool_use_id of the Skill call)
-          const nested = skill.toolUseId ? nestedCallsMap.get(skill.toolUseId) : undefined;
-          if (nested && nested.length > 0) {
-            skill.nestedCalls = nested;
-          }
-        }
+        // Build unified skill tree from transcript
+        skillTree = await TranscriptReader.analyzeNestedCalls(event.transcriptPath);
       } catch {
         // Ignore transcript read errors
       }
@@ -140,7 +136,7 @@ export class HookCollector {
     const payload: ForwardPayload = {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
-      skillInvocations: session.completedSkills,
+      skillTree,
       totalUsage: modelUsage,
       allEvents: session.events,
       sessionDuration: Date.now() - session.createdAt,
@@ -173,7 +169,7 @@ export class HookCollector {
     const payload: ForwardPayload = {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
-      skillInvocations: session.completedSkills,
+      skillTree: null,  // SessionEnd doesn't have transcript, no tree available
       totalUsage: {
         inputTokens: 0,
         outputTokens: 0,
