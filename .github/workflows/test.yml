@@ -42,21 +42,20 @@ jobs:
 
       - name: Configure relay hooks
         run: |
-          # Find cahr path
-          CAHR_PATH=""
-          for dir in /home/runner/.npm-global/bin /usr/local/bin /usr/bin; do
-            if [ -x "$dir/cahr" ]; then
-              CAHR_PATH="$dir/cahr"
-              break
-            fi
-          done
+          # Find npm global bin path first
+          NPM_GLOBAL=$(npm root -g)
+          echo "NPM global bin: $NPM_GLOBAL"
+          ls -la "$NPM_GLOBAL/" 2>/dev/null | head -20 || echo "Cannot list global bin"
           
-          # Fallback to PATH
-          if [ -z "$CAHR_PATH" ]; then
-            CAHR_PATH=$(which cahr 2>/dev/null || echo "cahr")
+          # Check if cahr is there
+          if [ -x "$NPM_GLOBAL/cahr" ]; then
+            CAHR_PATH="$NPM_GLOBAL/cahr"
+            echo "Found cahr at NPM global: $CAHR_PATH"
+          else
+            echo "cahr not found at $NPM_GLOBAL/cahr"
+            # Search for cahr
+            find /home/runner -name "cahr" -type f 2>/dev/null | head -5
           fi
-          
-          echo "Using cahr from: $CAHR_PATH"
           
           # Start relay in background
           node dist/index.js start &
@@ -72,8 +71,12 @@ jobs:
             sleep 1
           done
           
-          # Configure hooks
-          $CAHR_PATH init --url http://localhost:8080 || echo "cahr init failed"
+          # Configure hooks if cahr found
+          if [ -n "$CAHR_PATH" ] && [ -x "$CAHR_PATH" ]; then
+            $CAHR_PATH init --url http://localhost:8080 || echo "cahr init failed"
+          else
+            echo "Skipping cahr init - not found"
+          fi
           
           # Verify settings
           echo "Settings after init:"
