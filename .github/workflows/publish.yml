@@ -35,17 +35,8 @@ jobs:
 
       - name: Setup test skills
         run: |
-          mkdir -p ~/.claude/skills
           mkdir -p ~/.claude/skills/weather-checker
-          cat > ~/.claude/skills/weather-checker/SKILL.md << 'EOF'
-# weather-checker
-
-## Steps
-
-**Step 1:** Use the Bash tool to check weather:
-Tool: Bash
-Input: {"command": "echo 'Weather check: ' && date"}
-EOF
+          printf '%s\n' '# weather-checker' '' '## Steps' '' 'Step 1: Use the Bash tool to check weather:' 'Tool: Bash' 'Input: {"command": "echo 'Weather check: ' && date"}' > ~/.claude/skills/weather-checker/SKILL.md
 
       - name: Run tests
         run: npm test
