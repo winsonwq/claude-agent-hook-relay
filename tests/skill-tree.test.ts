@@ -67,41 +67,35 @@ async function startRelay() {
   }
   
   // Configure Claude Code hooks to send events to this relay
-  // Find cahr executable - may be in npm global bin or local node_modules
-  const npmGlobalBin = execSync('npm bin -g 2>/dev/null || echo ""', { encoding: 'utf-8' }).trim();
-  const pathParts = (process.env.PATH || '').split(':');
+  // Find cahr path - check multiple possible locations
   const possiblePaths = [
-    ...pathParts,
-    '/usr/local/bin',
-    '/usr/bin',
-    npmGlobalBin,
-  ].filter(Boolean);
+    process.env.HOME ? join(process.env.HOME, '.nvm', 'versions', 'node', 'v22.22.0', 'bin', 'cahr') : null,
+    '/usr/local/bin/cahr',
+    '/usr/bin/cahr',
+    'cahr', // fallback to PATH
+  ].filter(Boolean) as string[];
   
-  let cahrCmd = 'cahr';
+  let cahrPath = 'cahr';
   for (const p of possiblePaths) {
     try {
-      const cahrPath = join(p, 'cahr');
-      execSync(`test -x ${cahrPath} && echo exists`, { stdio: 'pipe' });
-      cahrCmd = cahrPath;
+      execSync(`test -x ${p} && echo OK`, { stdio: 'pipe' });
+      cahrPath = p;
       console.log('[Test] Found cahr at:', cahrPath);
       break;
     } catch {}
   }
   
+  // Run cahr init synchronously using execSync with timeout
   try {
-    console.log('[Test] Running cahr init with URL:', RELAY_URL);
-    const result = execSync(`${cahrCmd} init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8' });
-    console.log('[Test] cahr init output:', result);
+    const output = execSync(`${cahrPath} init --url ${RELAY_URL}`, {
+      encoding: 'utf-8',
+      timeout: 30000
+    });
+    console.log('[Test] cahr init succeeded:', output.slice(0, 200));
   } catch (e: unknown) {
-    const err = e as {message?: string; stderr?: string};
+    const err = e as {message?: string; stderr?: string; status?: number};
     console.error('[Test] cahr init failed:', err.message || err.stderr);
-    // Try direct npm exec
-    try {
-      console.log('[Test] Trying npx cahr init...');
-      execSync(`npx cahr init --url ${RELAY_URL} 2>&1`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch (e2) {
-      console.error('[Test] npx cahr also failed:', (e2 as Error).message);
-    }
+    console.error('[Test] cahr exit status:', err.status);
   }
   
   // Verify hook is configured
