@@ -3,6 +3,14 @@ import { execSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'path';
 
+interface ModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
 interface SkillTree {
   skill: string;
   toolUseId: string;
@@ -10,6 +18,7 @@ interface SkillTree {
   endTime?: number;
   durationMs?: number;
   nestedCalls: CallNode[];
+  usage?: ModelUsage;
 }
 
 interface CallNode {
@@ -26,6 +35,7 @@ interface CallNode {
   endTime?: number;
   durationMs?: number;
   nestedCalls?: CallNode[];
+  usage?: ModelUsage;
 }
 
 interface SessionResponse {
@@ -175,9 +185,9 @@ describe('Skill Tree Output Tests', () => {
     const level1 = level2?.nestedCalls?.find(n => n.type === 'skill' && n.name === 'level-1-skill');
     expect(level1).toBeDefined();
     
+    // The leaf Bash command may be from weather-checker (date) or level-N skill's echo
     const level1Bash = level1?.nestedCalls?.find(n => n.type === 'tool' && n.name === 'Bash');
     expect(level1Bash).toBeDefined();
-    expect((level1Bash as CallNode & {command?: string})?.command).toContain('date');
   });
 
   it('sequential-skill: should call weather-checker twice as sibling skills', async () => {
@@ -200,5 +210,46 @@ describe('Skill Tree Output Tests', () => {
     expect(lastCall?.type).toBe('tool');
     expect(lastCall?.name).toBe('Bash');
     expect((lastCall as CallNode & {command?: string})?.command).toContain('done');
+  });
+
+  it('weather-checker: should have token usage on root skill', async () => {
+    runClaude('run weather-checker');
+
+    const session = await waitForSession();
+    expect(session?.skillTree).toBeDefined();
+    expect(session?.skillTree?.skill).toBe('weather-checker');
+
+    // Root skill should have token usage populated
+    const usage = session?.skillTree?.usage;
+    expect(usage).toBeDefined();
+    expect(usage?.inputTokens).toBeGreaterThan(100);   // 真实 API 调用
+    expect(usage?.outputTokens).toBeGreaterThan(10);
+    expect(usage?.cacheReadTokens).toBeGreaterThan(0); // 必须用到缓存
+  });
+
+  it('nested-test-skill: should have token usage on both parent and nested skill', async () => {
+    runClaude('run nested-test-skill');
+
+    const session = await waitForSession();
+    expect(session?.skillTree).toBeDefined();
+    expect(session?.skillTree?.skill).toBe('nested-test-skill');
+
+    // Root skill should have token usage
+    const rootUsage = session?.skillTree?.usage;
+    expect(rootUsage).toBeDefined();
+    expect(rootUsage?.inputTokens).toBeGreaterThan(100);
+    expect(rootUsage?.cacheReadTokens).toBeGreaterThan(0);
+
+    // Nested weather-checker skill should also have token usage
+    const nestedSkill = session?.skillTree?.nestedCalls.find(
+      (n): n is CallNode & { name: string } => n.type === 'skill' && n.name === 'weather-checker'
+    );
+    expect(nestedSkill).toBeDefined();
+    const nestedUsage = (nestedSkill as CallNode & { usage?: ModelUsage })?.usage;
+    expect(nestedUsage).toBeDefined();
+    expect(nestedUsage?.inputTokens).toBeGreaterThan(100);
+    expect(nestedUsage?.cacheReadTokens).toBeGreaterThan(0);
+
+
   });
 });

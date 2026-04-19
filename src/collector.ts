@@ -148,6 +148,10 @@ export class HookCollector {
     // Store skillTree in session for API access
     this.sessionManager.setSkillTree(session.sessionId, skillTree, event.transcriptPath ?? null);
 
+    // Cache usage and skillTree for SessionEnd (which doesn't have transcript data)
+    session.cachedUsage = modelUsage;
+    session.cachedSkillTree = skillTree ?? undefined;
+
     await this.forwarder.forward(payload);
   }
 
@@ -172,8 +176,9 @@ export class HookCollector {
     const payload: ForwardPayload = {
       sessionId: session.sessionId,
       sourceId: session.sourceId,
-      skillTree: null,  // SessionEnd doesn't have transcript, no tree available
-      totalUsage: {
+      // Use cached data from Stop event (SessionEnd doesn't have transcript)
+      skillTree: session.cachedSkillTree ?? null,
+      totalUsage: session.cachedUsage ?? {
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,

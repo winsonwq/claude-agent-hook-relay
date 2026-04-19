@@ -2,7 +2,7 @@
 
 import * as fs from 'fs';
 import * as readline from 'readline';
-import type { SkillTree, SkillCallNode, ToolCallNode } from './types.js';
+import type { SkillTree, SkillCallNode, ToolCallNode, ModelUsage } from './types.js';
 
 export interface TranscriptEntry {
   type: 'user' | 'assistant' | 'system' | 'attachment';
@@ -87,17 +87,13 @@ export class TranscriptReader {
       const entryTime = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
       if (entryTime < startTime || entryTime > endTime) continue;
 
-      const content = this.getMessageContent(entry);
-      if (content) {
-        for (const msg of content) {
-          if (msg.type === 'message' && msg.usage) {
-            const usage = msg.usage as Record<string, number>;
-            inputTokens += usage.input_tokens ?? 0;
-            outputTokens += usage.output_tokens ?? 0;
-            cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-            cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
-          }
-        }
+      // Usage is at entry.message.usage (not inside content array)
+      const usage = entry.message?.usage;
+      if (usage) {
+        inputTokens += usage.input_tokens ?? 0;
+        outputTokens += usage.output_tokens ?? 0;
+        cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+        cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
       }
     }
 
@@ -113,19 +109,15 @@ export class TranscriptReader {
     let cacheCreationTokens = 0;
 
     for (const entry of entries) {
-      if (entry.type === 'assistant') {
-        const content = this.getMessageContent(entry);
-        if (content) {
-          for (const msg of content) {
-            if (msg.type === 'message' && msg.usage) {
-              const usage = msg.usage as Record<string, number>;
-              inputTokens += usage.input_tokens ?? 0;
-              outputTokens += usage.output_tokens ?? 0;
-              cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-              cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
-            }
-          }
-        }
+      if (entry.type !== 'assistant') continue;
+
+      // Usage is at entry.message.usage (not inside content array)
+      const usage = entry.message?.usage;
+      if (usage) {
+        inputTokens += usage.input_tokens ?? 0;
+        outputTokens += usage.output_tokens ?? 0;
+        cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+        cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
       }
     }
 
@@ -142,10 +134,11 @@ export class TranscriptReader {
     const entries = await this.read(transcriptPath);
 
     // Build tool_use_id -> { name, input, skill }
-    const toolUseById = new Map<string, { name: string; input?: Record<string, unknown>; skill: string | null }>();
+    const toolUseById = new Map<string, { name: string; input?: Record<string, unknown>; skill: string | null; ts?: number }>();
     for (const entry of entries) {
       if (entry.type === 'assistant') {
         const content = this.getMessageContent(entry);
+        const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
         if (content) {
           for (const item of content) {
             if (item.type === 'tool_use') {
@@ -154,7 +147,7 @@ export class TranscriptReader {
               const name = toolUse.name as string;
               const input = toolUse.input as Record<string, unknown> | undefined;
               const skillName = typeof input?.skill === 'string' ? input.skill : null;
-              toolUseById.set(id, { name, input, skill: skillName });
+              toolUseById.set(id, { name, input, skill: skillName, ts: entryTs });
             }
           }
         }
@@ -191,9 +184,19 @@ export class TranscriptReader {
         case 'WebSearch':
           if (typeof input.query === 'string') info.query = input.query;
           break;
-        // Add more tools as needed
       }
       return info;
+    };
+
+    // Helper: add usage to a skill node
+    const addUsageToSkill = (node: SkillCallNode, usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }) => {
+      if (!node.usage) {
+        node.usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+      }
+      node.usage!.inputTokens += usage.inputTokens;
+      node.usage!.outputTokens += usage.outputTokens;
+      node.usage!.cacheReadTokens += usage.cacheReadTokens;
+      node.usage!.cacheCreationTokens += usage.cacheCreationTokens;
     };
 
     interface StackEntry {
@@ -203,8 +206,6 @@ export class TranscriptReader {
     }
 
     const skillStack: StackEntry[] = [];
-    // Map: tool_use_id -> stack index (which skill owns this tool)
-    const toolOwnership = new Map<string, number>();
 
     const popDoneSkills = () => {
       while (skillStack.length > 1 && skillStack[skillStack.length - 1].isDone) {
@@ -215,6 +216,18 @@ export class TranscriptReader {
     for (const entry of entries) {
       if (entry.type === 'assistant') {
         const content = this.getMessageContent(entry);
+
+        // Attribute this assistant turn's usage to the current skill (top of stack)
+        const usage = entry.message?.usage;
+        if (usage && skillStack.length > 0) {
+          addUsageToSkill(skillStack[skillStack.length - 1].node, {
+            inputTokens: usage.input_tokens ?? 0,
+            outputTokens: usage.output_tokens ?? 0,
+            cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+            cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+          });
+        }
+
         if (!content) continue;
 
         for (const item of content) {
@@ -226,26 +239,23 @@ export class TranscriptReader {
           const skillName = typeof toolInput?.skill === 'string' ? toolInput.skill : null;
 
           if (toolName === 'Skill' && skillName) {
-            // Skill call - pop done skills, then create node and add to parent's nestedCalls
             popDoneSkills();
 
+            const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
             const skillNode: SkillCallNode = {
               type: 'skill',
               name: skillName,
               toolUseId: toolId,
-              startTime: Date.now(), // Transcript doesn't have precise timing
+              startTime: entryTs,
               nestedCalls: [],
             };
 
-            // Add to parent's nestedCalls
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].node.nestedCalls.push(skillNode);
             }
 
-            // Push onto stack
             skillStack.push({ node: skillNode, pendingTools: 0, isDone: false });
           } else {
-            // Tool call - pop done skills first, then attribute to current skill
             popDoneSkills();
 
             const toolInfo = extractToolInfo(toolName, toolInput);
@@ -260,7 +270,6 @@ export class TranscriptReader {
               skillStack[skillStack.length - 1].node.nestedCalls.push(toolNode);
               skillStack[skillStack.length - 1].pendingTools++;
             }
-            toolOwnership.set(toolId, skillStack.length > 0 ? skillStack.length - 1 : -1);
           }
         }
       }
@@ -278,7 +287,6 @@ export class TranscriptReader {
           if (toolUse?.skill) {
             // Skill result - nothing to do (Launching status)
           } else {
-            // Tool result - decrement pending and check if done
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].pendingTools--;
               if (skillStack[skillStack.length - 1].pendingTools === 0) {
@@ -299,6 +307,7 @@ export class TranscriptReader {
       toolUseId: root.toolUseId,
       startTime: root.startTime,
       nestedCalls: root.nestedCalls,
+      usage: root.usage,
     };
   }
 }

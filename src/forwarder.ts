@@ -1,4 +1,4 @@
-import type { ForwardPayload, Forwarder, CallNode } from './types.js';
+import type { ForwardPayload, Forwarder, CallNode, SkillCallNode, ToolCallNode } from './types.js';
 
 /**
  * Console Forwarder - outputs to stdout with friendly formatting
@@ -14,6 +14,12 @@ export class ConsoleForwarder implements Forwarder {
     }
     this.processedSessions.add(data.sessionId);
 
+    // Helper to format usage summary
+    const fmtUsage = (u: { inputTokens: number; outputTokens: number; cacheReadTokens: number } | undefined): string => {
+      if (!u || (u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadTokens === 0)) return '';
+      return ` [in=${u.inputTokens} out=${u.outputTokens} cache=${u.cacheReadTokens}]`;
+    };
+
     // Helper to format a call node recursively
     const formatCallNode = (node: CallNode, indent: string, isLast: boolean): string[] => {
       const prefix = isLast ? '└── ' : '├── ';
@@ -21,28 +27,29 @@ export class ConsoleForwarder implements Forwarder {
       const lines: string[] = [];
 
       if (node.type === 'skill') {
-        lines.push(`${indent}${prefix}🤖 Skill: ${node.name}`);
-        for (let i = 0; i < node.nestedCalls.length; i++) {
-          const child = node.nestedCalls[i];
-          lines.push(...formatCallNode(child, nextIndent, i === node.nestedCalls.length - 1));
+        const sn = node as SkillCallNode;
+        lines.push(`${indent}${prefix}🤖 Skill: ${sn.name}${fmtUsage(sn.usage)}`);
+        for (let i = 0; i < sn.nestedCalls.length; i++) {
+          const child = sn.nestedCalls[i];
+          lines.push(...formatCallNode(child, nextIndent, i === sn.nestedCalls.length - 1));
         }
       } else {
-        // Tool node
+        const tn = node as ToolCallNode;
         let info = '';
-        if (node.command) {
-          info = `: ${node.command}`;
-        } else if (node.file) {
-          info = `: ${node.file}`;
-        } else if (node.url) {
-          info = `: ${node.url}`;
-        } else if (node.pattern) {
-          info = `: ${node.pattern}`;
-        } else if (node.query) {
-          info = `: ${node.query}`;
-        } else if (node.content) {
-          info = `: ${node.content.substring(0, 50)}...`;
+        if (tn.command) {
+          info = `: ${tn.command}`;
+        } else if (tn.file) {
+          info = `: ${tn.file}`;
+        } else if (tn.url) {
+          info = `: ${tn.url}`;
+        } else if (tn.pattern) {
+          info = `: ${tn.pattern}`;
+        } else if (tn.query) {
+          info = `: ${tn.query}`;
+        } else if (tn.content) {
+          info = `: ${tn.content.substring(0, 50)}...`;
         }
-        lines.push(`${indent}${prefix}🔧 ${node.name}${info}`);
+        lines.push(`${indent}${prefix}🔧 ${tn.name}${info}${fmtUsage(tn.usage)}`);
       }
 
       return lines;
@@ -54,7 +61,7 @@ export class ConsoleForwarder implements Forwarder {
 
     if (data.skillTree) {
       const tree = data.skillTree;
-      lines.push(`📋 ${tree.skill}`);
+      lines.push(`📋 ${tree.skill}${fmtUsage(tree.usage)}`);
       for (let i = 0; i < tree.nestedCalls.length; i++) {
         const child = tree.nestedCalls[i];
         lines.push(...formatCallNode(child, '', i === tree.nestedCalls.length - 1));

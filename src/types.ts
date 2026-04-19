@@ -17,6 +17,7 @@ export interface SkillCallNode {
   endTime?: number;
   durationMs?: number;
   nestedCalls: CallNode[];
+  usage?: ModelUsage;  // Token usage for this skill and all nested calls
 }
 
 export interface ToolCallNode {
@@ -32,6 +33,7 @@ export interface ToolCallNode {
   content?: string;    // Edit
   // etc.
   durationMs?: number;
+  usage?: ModelUsage;  // Token usage for this tool call
 }
 
 export interface SkillInvocation {
@@ -66,6 +68,9 @@ export interface Session {
   transcriptPath: string | null;
   createdAt: number;
   updatedAt: number;
+  // Cached from Stop event for use in SessionEnd
+  cachedUsage?: ModelUsage;
+  cachedSkillTree?: SkillTree;
 }
 
 // Forwarder interface
@@ -81,6 +86,7 @@ export interface SkillTree {
   endTime?: number;
   durationMs?: number;
   nestedCalls: CallNode[];
+  usage?: ModelUsage;
 }
 
 export interface ForwardPayload {
