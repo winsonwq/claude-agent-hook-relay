@@ -149,7 +149,8 @@ export class CompositeForwarder implements Forwarder {
 export class OtelForwarder implements Forwarder {
   constructor(
     private url: string,
-    private headers: Record<string, string> = {}
+    private headers: Record<string, string> = {},
+    private serviceName: string = 'claude-code'
   ) {}
 
   async forward(data: ForwardPayload): Promise<void> {
@@ -180,17 +181,13 @@ export class OtelForwarder implements Forwarder {
   }
 
   /**
-   * Convert SkillTree to OTel-compatible spans
+   * Convert SkillTree to OTLP format (resourceSpans > scopeSpans > spans)
    */
-  private buildSpans(data: ForwardPayload) {
+  private buildSpans(data: ForwardPayload): OtlpPayload {
     const spans: OtelSpan[] = [];
     const tree = data.skillTree!;
 
-    // Build a map of invocation_id -> span for linking
-    const spanMap = new Map<string, OtelSpan>();
-
     // SkillTree has 'skill' property, SkillCallNode has 'name' property
-    // Normalize to { name, toolUseId, nestedCalls, durationMs, usage }
     const rootNode = {
       name: tree.skill,
       toolUseId: tree.toolUseId,
@@ -200,14 +197,31 @@ export class OtelForwarder implements Forwarder {
     };
 
     // Process the tree recursively
-    this.processNode(rootNode, undefined, 0, data, spans, spanMap);
+    this.processNode(rootNode, undefined, 0, data, spans);
 
     // Add session-level total usage as a separate span
     if (data.totalUsage) {
       spans.push(this.buildTotalUsageSpan(data));
     }
 
-    return spans;
+    // Wrap in standard OTLP format
+    return {
+      resourceSpans: [{
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: this.serviceName } },
+            { key: 'user.id', value: { stringValue: data.sourceId || 'unknown' } },
+          ],
+        },
+        scopeSpans: [{
+          scope: {
+            name: this.serviceName,
+            version: '0.1.20',
+          },
+          spans: spans,
+        }],
+      }],
+    };
   }
 
   private processNode(
@@ -215,10 +229,11 @@ export class OtelForwarder implements Forwarder {
     parentInvocationId: string | undefined,
     depth: number,
     data: ForwardPayload,
-    spans: OtelSpan[],
-    spanMap: Map<string, OtelSpan>
+    spans: OtelSpan[]
   ): void {
     const invocationId = node.toolUseId || `auto-${spans.length}`;
+    const startTime = Date.now();
+    const duration = node.durationMs || data.sessionDuration;
 
     // Collect direct tool names and child skill names
     const nestedTools: string[] = [];
@@ -227,65 +242,74 @@ export class OtelForwarder implements Forwarder {
     for (const child of node.nestedCalls) {
       if (child.type === 'skill') {
         childSkills.push(child.name);
-        // Recursively process child skill
-        this.processNode(child, invocationId, depth + 1, data, spans, spanMap);
+        this.processNode(child, invocationId, depth + 1, data, spans);
       } else {
         nestedTools.push(child.name);
       }
     }
 
-    // Calculate total tool calls (direct tools + child skill tool calls)
     const childToolCalls = this.countChildToolCalls(node.nestedCalls);
     const totalToolCalls = nestedTools.length + childToolCalls;
 
-    // Create the span for this skill
+    // Convert attributes to OTel key-value pairs
+    const attributes: OtelKeyValue[] = [
+      { key: 'span.type', value: { stringValue: 'skill' } },
+      { key: 'user.id', value: { stringValue: data.sourceId || '' } },
+      { key: 'session.id', value: { stringValue: data.sessionId || '' } },
+      { key: 'skill.name', value: { stringValue: node.name } },
+      { key: 'skill.invocation_id', value: { stringValue: invocationId } },
+      { key: 'skill.depth', value: { intValue: depth } },
+      { key: 'skill.nested_tools', value: { arrayValue: { values: nestedTools.map(t => ({ stringValue: t })) } } },
+      { key: 'skill.child_skills', value: { arrayValue: { values: childSkills.map(s => ({ stringValue: s })) } } },
+      { key: 'skill.duration_ms', value: { intValue: duration } },
+      { key: 'skill.total_tool_calls', value: { intValue: totalToolCalls } },
+      { key: 'skill.input_tokens', value: { intValue: node.usage?.inputTokens ?? 0 } },
+      { key: 'skill.output_tokens', value: { intValue: node.usage?.outputTokens ?? 0 } },
+      { key: 'skill.cache_read_tokens', value: { intValue: node.usage?.cacheReadTokens ?? 0 } },
+    ];
+
+    if (parentInvocationId) {
+      attributes.push({ key: 'skill.parent_invocation_id', value: { stringValue: parentInvocationId } });
+    }
+
     const span: OtelSpan = {
+      traceId: this.generateTraceId(data.sessionId),
+      spanId: this.generateSpanId(),
+      parentSpanId: parentInvocationId ? this.generateSpanIdFromId(parentInvocationId) : undefined,
       name: 'claude_code.skill',
-      attributes: {
-        // OTel standard
-        'span.type': 'skill',
-        'user.id': data.sourceId,
-        'session.id': data.sessionId,
-
-        // Skill-specific
-        'skill.name': node.name,
-        'skill.invocation_id': invocationId,
-        'skill.parent_invocation_id': parentInvocationId,
-        'skill.depth': depth,
-        'skill.nested_tools': nestedTools,
-        'skill.child_skills': childSkills,
-        'skill.duration_ms': node.durationMs || data.sessionDuration,
-        'skill.total_tool_calls': totalToolCalls,
-
-        // Token usage for this skill (from transcript)
-        'skill.input_tokens': node.usage?.inputTokens ?? 0,
-        'skill.output_tokens': node.usage?.outputTokens ?? 0,
-        'skill.cache_read_tokens': node.usage?.cacheReadTokens ?? 0,
-        'skill.cache_creation_tokens': node.usage?.cacheCreationTokens ?? 0,
-      },
+      kind: 1, // SpanKind.INTERNAL
+      startTimeUnixNano: String(BigInt(startTime) * 1000000n),
+      endTimeUnixNano: String(BigInt(startTime + duration) * 1000000n),
+      attributes,
     };
 
     spans.push(span);
-    spanMap.set(invocationId, span);
   }
 
   private buildTotalUsageSpan(data: ForwardPayload): OtelSpan {
     const u = data.totalUsage;
+    const startTime = Date.now();
+    const attributes: OtelKeyValue[] = [
+      { key: 'span.type', value: { stringValue: 'session_summary' } },
+      { key: 'user.id', value: { stringValue: data.sourceId || '' } },
+      { key: 'session.id', value: { stringValue: data.sessionId || '' } },
+      { key: 'session.duration_ms', value: { intValue: data.sessionDuration } },
+      { key: 'session.stop_reason', value: { stringValue: data.stopReason ?? '' } },
+      { key: 'session.input_tokens', value: { intValue: u.inputTokens } },
+      { key: 'session.output_tokens', value: { intValue: u.outputTokens } },
+      { key: 'session.cache_read_tokens', value: { intValue: u.cacheReadTokens } },
+      { key: 'session.cache_creation_tokens', value: { intValue: u.cacheCreationTokens } },
+      { key: 'session.total_cost_usd', value: { doubleValue: u.costUsd } },
+    ];
+
     return {
+      traceId: this.generateTraceId(data.sessionId),
+      spanId: this.generateSpanId(),
       name: 'claude_code.session_summary',
-      attributes: {
-        'span.type': 'session_summary',
-        'user.id': data.sourceId,
-        'session.id': data.sessionId,
-        'session.duration_ms': data.sessionDuration,
-        'session.stop_reason': data.stopReason ?? '',
-        // Total token usage for the entire session
-        'session.input_tokens': u.inputTokens,
-        'session.output_tokens': u.outputTokens,
-        'session.cache_read_tokens': u.cacheReadTokens,
-        'session.cache_creation_tokens': u.cacheCreationTokens,
-        'session.total_cost_usd': u.costUsd,
-      },
+      kind: 1,
+      startTimeUnixNano: String(BigInt(startTime) * 1000000n),
+      endTimeUnixNano: String(BigInt(startTime + data.sessionDuration) * 1000000n),
+      attributes,
     };
   }
 
@@ -293,13 +317,40 @@ export class OtelForwarder implements Forwarder {
     let count = 0;
     for (const child of nestedCalls) {
       if (child.type === 'skill') {
-        // Child skill's tools + its children's tools
         count += this.countChildToolCalls(child.nestedCalls);
       } else {
         count += 1;
       }
     }
     return count;
+  }
+
+  private generateTraceId(sessionId?: string): string {
+    // Generate a 32-char hex traceId (16 bytes)
+    const base = sessionId || Date.now().toString(36) + Math.random().toString(36).slice(2);
+    let hash = 0;
+    for (let i = 0; i < base.length; i++) {
+      hash = ((hash << 5) - hash + base.charCodeAt(i)) | 0;
+    }
+    const h1 = Math.abs(hash).toString(16).padStart(8, '0');
+    const h2 = Math.abs(~hash >>> 0).toString(16).padStart(8, '0');
+    return (h1 + h2 + h1 + h2).slice(0, 32).padEnd(32, '0');
+  }
+
+  private generateSpanId(): string {
+    // Generate a 16-char hex spanId (8 bytes)
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  private generateSpanIdFromId(invocationId: string): string {
+    // Derive a deterministic spanId from invocationId
+    let hash = 0;
+    for (let i = 0; i < invocationId.length; i++) {
+      hash = ((hash << 5) - hash + invocationId.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash >>> 0).toString(16).padStart(16, '0');
   }
 }
 
@@ -308,33 +359,36 @@ export class OtelForwarder implements Forwarder {
  * @see docs/otel-integration.md#最终格式设计
  */
 interface OtelSpan {
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
   name: string;
-  attributes: {
-    'span.type': 'skill' | 'session_summary';
-    'user.id': string;
-    'session.id': string;
+  kind: number;
+  startTimeUnixNano?: string;
+  endTimeUnixNano?: string;
+  attributes: OtelKeyValue[];
+}
 
-    // Skill span fields (when span.type === 'skill')
-    'skill.name'?: string;
-    'skill.invocation_id'?: string;
-    'skill.parent_invocation_id'?: string;
-    'skill.depth'?: number;
-    'skill.nested_tools'?: string[];
-    'skill.child_skills'?: string[];
-    'skill.duration_ms'?: number;
-    'skill.total_tool_calls'?: number;
-    'skill.input_tokens'?: number;
-    'skill.output_tokens'?: number;
-    'skill.cache_read_tokens'?: number;
-    'skill.cache_creation_tokens'?: number;
+interface OtelKeyValue {
+  key: string;
+  value: OtelAnyValue;
+}
 
-    // Session summary fields (when span.type === 'session_summary')
-    'session.duration_ms'?: number;
-    'session.stop_reason'?: string;
-    'session.input_tokens'?: number;
-    'session.output_tokens'?: number;
-    'session.cache_read_tokens'?: number;
-    'session.cache_creation_tokens'?: number;
-    'session.total_cost_usd'?: number;
-  };
+interface OtelAnyValue {
+  stringValue?: string;
+  intValue?: number;
+  doubleValue?: number;
+  arrayValue?: { values: OtelAnyValue[] };
+}
+
+interface OtlpPayload {
+  resourceSpans: [{
+    resource: {
+      attributes: OtelKeyValue[];
+    };
+    scopeSpans: [{
+      scope: { name: string; version?: string };
+      spans: OtelSpan[];
+    }];
+  }];
 }

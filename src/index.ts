@@ -71,9 +71,14 @@ async function cmdStart(): Promise<void> {
 
   if (otelUrl) {
     const authHeader = process.env.RELAY_OTEL_AUTH_HEADER;
+    const serviceName = process.env.RELAY_OTEL_SERVICE_NAME || 'claude-code';
     const headers: Record<string, string> = authHeader ? { Authorization: authHeader } : {};
-    forwarders.push(new OtelForwarder(otelUrl, headers));
+    forwarders.push(new OtelForwarder(otelUrl, headers, serviceName));
   }
+
+  // Convenience: if RELAY_OTEL_SERVICE_NAME is not set but RELAY_OTEL_URL is,
+  // default to 'claude-code' so both CLI native OTel and relay skill traces
+  // appear under the same service in Jaeger.
 
   const sessionManager = new SessionManager();
   const collector = new HookCollector(sessionManager, new CompositeForwarder(forwarders));
