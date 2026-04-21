@@ -209,27 +209,31 @@ handleSessionEnd() {
   // 使用缓存数据，避免 SessionEnd 没有 transcriptPath 的问题
   payload.skillTree = session.cachedSkillTree ?? null;
   payload.totalUsage = session.cachedUsage ?? { inputTokens: 0, ... };
-  await forward(payload);  // 第二次转发（但 ConsoleForwarder 会去重）
+  await forward(payload);  // 第二次转发（SessionEnd 打印相同汇总，内容幂等）
 }
 ```
 
 ## ConsoleForwarder 输出示例
 
 ```
-[Relay]
 ────────────────────────────────────────────────────────────
-📋 nested-test-skill [in=10941 out=882 cache=212988]
-├── 🤖 Skill: weather-checker [in=5121 out=525 cache=142995]
-│   └── 🔧 Bash: echo 'Weather check: ' && date
-├── 🔧 Bash: date
-├── 🔧 Read: example.txt
-└── 🔧 Bash: ls -la ...
+📋 Session abc123… · 19171ms
+🤖 nested-test-skill
+  ├── 🤖 weather-checker (2 calls)
+  │   ├── 🔧 Bash echo 'Weather check: ' && date
+  │   └── 🔧 Bash date
+  ├── 🔧 Bash date
+  ├── 🔧 Read example.txt
+  └── 🔧 Bash ls -la ...
 ────────────────────────────────────────────────────────────
-⏱️  耗时: 19171ms
-📊 Token: in=16314 out=1513 cache=404343
+📊 Tokens  in=16314, out=1513, cache=404343
+📌 Reason  stop
+────────────────────────────────────────────────────────────
 ```
 
-方括号内的 `[in=X out=Y cache=Z]` 即为 per-skill 的 token 统计。
+输出分为两部分：
+- **实时行**：每个 Tool 调用完成时立即打印一行（→ 开始，✓ 完成，✗ 失败），带时间戳
+- **汇总摘要**：Session 结束时打印完整 Skill 树、Token 统计、停止原因
 
 ## 限制与已知问题
 
