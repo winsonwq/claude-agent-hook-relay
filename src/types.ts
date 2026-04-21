@@ -84,6 +84,13 @@ export interface Session {
 // Forwarder interface
 export interface Forwarder {
   forward(data: ForwardPayload): Promise<void>;
+  /**
+   * Optional real-time event logging (called as events arrive, before forward()).
+   * If not implemented, the collector falls back to silent tracking.
+   */
+  logPreToolUse?(params: { sessionId: string; toolUseId: string; toolName: string; skillName?: string }): void;
+  logPostToolUse?(params: { sessionId: string; toolUseId: string; toolName: string; skillName?: string }): void;
+  logToolFailure?(params: { sessionId: string; toolUseId: string; toolName: string; error: string; skillName?: string }): void;
 }
 
 // Single entry point skill tree (unified view)

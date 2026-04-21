@@ -66,6 +66,38 @@ export class HookCollector {
           break;
       }
 
+      // Real-time logging for supported forwarders (ConsoleForwarder)
+      const currentSkill = session.skillStack.length > 0
+        ? session.skillStack[session.skillStack.length - 1].skill
+        : undefined;
+      if (eventType === 'PreToolUse') {
+        this.forwarder.logPreToolUse?.({
+          sessionId: session.sessionId,
+          toolUseId: event.toolUseId || '',
+          toolName: event.toolName || 'unknown',
+          skillName: currentSkill,
+        });
+      } else if (eventType === 'PostToolUse') {
+        this.forwarder.logPostToolUse?.({
+          sessionId: session.sessionId,
+          toolUseId: event.toolUseId || '',
+          toolName: event.toolName || 'unknown',
+          skillName: currentSkill,
+        });
+      } else if (eventType === 'PostToolUseFailure') {
+        const errorMessage = typeof body.error === 'string' ? body.error
+          : body.error && typeof body.error === 'object' && 'message' in body.error
+            ? String((body.error as {message: unknown}).message)
+            : 'Unknown error';
+        this.forwarder.logToolFailure?.({
+          sessionId: session.sessionId,
+          toolUseId: event.toolUseId || '',
+          toolName: event.toolName || 'unknown',
+          error: errorMessage,
+          skillName: currentSkill,
+        });
+      }
+
       this.sessionManager.addEvent(sessionId, event);
 
       res.status(200).json({});

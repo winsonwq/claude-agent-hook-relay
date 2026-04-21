@@ -1,97 +1,190 @@
+import chalk from 'chalk';
 import type { ForwardPayload, Forwarder, CallNode, SkillCallNode, ToolCallNode, ModelUsage } from './types.js';
 
+// chalk auto-detects terminal color support — no manual config needed
+
 /**
- * Console Forwarder - outputs to stdout with friendly formatting
+ * Console Forwarder - real-time colored output to stdout
+ *
+ * Outputs events as they arrive (real-time mode), plus a formatted
+ * summary at Stop/SessionEnd. All output goes to stdout/stderr.
+ *
+ * This forwarder is independent from OtelForwarder - they can run
+ * concurrently without affecting each other.
  */
 export class ConsoleForwarder implements Forwarder {
-  // Track which sessions we've already processed to avoid duplicate output
-  private processedSessions = new Set<string>();
+  // Track tool start times per session+toolUseId for duration calculation
+  private pendingTools = new Map<string, number>();
+
+  private toolKey(sessionId: string, toolUseId: string): string {
+    return `${sessionId}:${toolUseId}`;
+  }
+
+  // ─── Public: called by HookCollector at Stop/SessionEnd ───────────────────────
 
   async forward(data: ForwardPayload): Promise<void> {
-    // Skip if we've already processed this session (avoid duplicate Stop/SessionEnd)
-    if (this.processedSessions.has(data.sessionId)) {
-      return;
+    // Print the final summary for this session
+    this.printSummary(data);
+  }
+
+  // ─── Real-time event logging (called by collector before forward) ───────────
+
+  logPreToolUse(params: { sessionId: string; toolUseId: string; toolName: string; skillName?: string }): void {
+    const key = this.toolKey(params.sessionId, params.toolUseId);
+    this.pendingTools.set(key, Date.now());
+
+    const skillHint = params.skillName ? chalk.gray(` @ ${params.skillName}`) : '';
+    process.stdout.write(
+      chalk.gray(`[${this.ts()}] `) +
+      chalk.cyan('→ ') +
+      chalk.bold(params.toolName) +
+      skillHint +
+      '\n'
+    );
+  }
+
+  logPostToolUse(params: { sessionId: string; toolUseId: string; toolName: string; skillName?: string }): void {
+    const key = this.toolKey(params.sessionId, params.toolUseId);
+    const startTime = this.pendingTools.get(key);
+    const duration = startTime ? Date.now() - startTime : null;
+    this.pendingTools.delete(key);
+
+    const skillHint = params.skillName ? chalk.gray(` @ ${params.skillName}`) : '';
+    const durHint = duration !== null ? chalk.gray(` ${duration}ms`) : '';
+
+    process.stdout.write(
+      chalk.gray(`[${this.ts()}] `) +
+      chalk.green('✓ ') +
+      chalk.bold(params.toolName) +
+      skillHint +
+      durHint +
+      '\n'
+    );
+  }
+
+  logToolFailure(params: { sessionId: string; toolUseId: string; toolName: string; error: string; skillName?: string }): void {
+    const key = this.toolKey(params.sessionId, params.toolUseId);
+    this.pendingTools.delete(key);
+
+    const skillHint = params.skillName ? chalk.gray(` @ ${params.skillName}`) : '';
+    process.stderr.write(
+      chalk.gray(`[${this.ts()}] `) +
+      chalk.red('✗ ') +
+      chalk.bold(params.toolName) +
+      skillHint +
+      chalk.red(` — ${params.error}`) +
+      '\n'
+    );
+  }
+
+  // ─── Summary printer (called at Stop/SessionEnd) ───────────────────────────
+
+  private printSummary(data: ForwardPayload): void {
+    const divider = chalk.gray('─'.repeat(60));
+    const lines: string[] = [];
+    lines.push('');
+    lines.push(divider);
+
+    // Header with session info
+    const sessionLabel = data.sessionId.length > 12
+      ? data.sessionId.slice(0, 12) + '…'
+      : data.sessionId;
+    lines.push(
+      chalk.bold.white('📋 Session ') + chalk.cyan(sessionLabel) +
+      chalk.gray(' · ') + chalk.yellow(`${data.sessionDuration}ms`)
+    );
+
+    // Skill tree
+    if (data.skillTree) {
+      lines.push(this.formatSkillTree(data.skillTree));
+    } else {
+      lines.push(chalk.gray('  (no skill calls)'));
     }
-    this.processedSessions.add(data.sessionId);
 
-    // Helper to format usage summary
-    const fmtUsage = (u: { inputTokens: number; outputTokens: number; cacheReadTokens: number } | undefined): string => {
-      if (!u || (u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadTokens === 0)) return '';
-      return ` [in=${u.inputTokens} out=${u.outputTokens} cache=${u.cacheReadTokens}]`;
-    };
+    lines.push(divider);
 
-    // Helper to format a call node recursively
-    const formatCallNode = (node: CallNode, indent: string, isLast: boolean): string[] => {
+    // Token usage
+    if (data.totalUsage.inputTokens > 0 || data.totalUsage.outputTokens > 0) {
+      const cacheInfo = data.totalUsage.cacheReadTokens > 0
+        ? chalk.gray(` cache=${data.totalUsage.cacheReadTokens}`)
+        : '';
+      lines.push(
+        chalk.bold('📊 Tokens  ') +
+        chalk.green(`in=${data.totalUsage.inputTokens}`) +
+        chalk.gray(', ') +
+        chalk.blue(`out=${data.totalUsage.outputTokens}`) +
+        cacheInfo
+      );
+    }
+
+    // Stop reason
+    if (data.stopReason) {
+      lines.push(chalk.bold('📌 Reason  ') + chalk.white(data.stopReason));
+    }
+
+    // Failures
+    if (data.failures && data.failures.length > 0) {
+      lines.push(chalk.bold.red(`❌ Failures (${data.failures.length})`));
+      for (const f of data.failures) {
+        const loc = f.skillName ? chalk.red(` [${f.skillName}]`) : '';
+        lines.push(chalk.red(`   ✗ ${f.toolName}${loc}: ${f.error}`));
+      }
+    }
+
+    lines.push(divider);
+    lines.push('');
+    process.stdout.write(lines.join('\n') + '\n');
+  }
+
+  private formatSkillTree(tree: { skill: string; nestedCalls: CallNode[]; durationMs?: number; usage?: ModelUsage }): string {
+    const lines: string[] = [];
+    const dur = tree.durationMs ? chalk.gray(` ${tree.durationMs}ms`) : '';
+    lines.push(chalk.bold.green('🤖 ') + chalk.bold.white(tree.skill) + dur);
+
+    const fmtNode = (node: CallNode, indent: string, isLast: boolean): string[] => {
+      const pipe = isLast ? '    ' : '│   ';
       const prefix = isLast ? '└── ' : '├── ';
-      const nextIndent = indent + (isLast ? '    ' : '│   ');
-      const lines: string[] = [];
+      const childIndent = indent + pipe;
+      const childPrefix = indent + prefix;
+      const result: string[] = [];
 
       if (node.type === 'skill') {
         const sn = node as SkillCallNode;
-        lines.push(`${indent}${prefix}🤖 Skill: ${sn.name}${fmtUsage(sn.usage)}`);
-        for (let i = 0; i < sn.nestedCalls.length; i++) {
-          const child = sn.nestedCalls[i];
-          lines.push(...formatCallNode(child, nextIndent, i === sn.nestedCalls.length - 1));
-        }
+        const nested = sn.nestedCalls.length > 0
+          ? chalk.gray(` (${sn.nestedCalls.length} calls)`)
+          : '';
+        result.push(childPrefix + chalk.bold.green('🤖 ') + chalk.white(sn.name) + nested);
+        sn.nestedCalls.forEach((child, i) => {
+          result.push(...fmtNode(child, childIndent, i === sn.nestedCalls.length - 1));
+        });
       } else {
         const tn = node as ToolCallNode;
-        let info = '';
-        if (tn.command) {
-          info = `: ${tn.command}`;
-        } else if (tn.file) {
-          info = `: ${tn.file}`;
-        } else if (tn.url) {
-          info = `: ${tn.url}`;
-        } else if (tn.pattern) {
-          info = `: ${tn.pattern}`;
-        } else if (tn.query) {
-          info = `: ${tn.query}`;
-        } else if (tn.content) {
-          info = `: ${tn.content.substring(0, 50)}...`;
-        }
-        lines.push(`${indent}${prefix}🔧 ${tn.name}${info}${fmtUsage(tn.usage)}`);
+        let detail = '';
+        if (tn.command) detail = ` ${tn.command}`;
+        else if (tn.file) detail = ` ${tn.file}`;
+        else if (tn.url) detail = ` ${tn.url}`;
+        else if (tn.pattern) detail = ` ${tn.pattern}`;
+        else if (tn.query) detail = ` ${tn.query}`;
+
+        // Truncate long detail strings
+        if (detail.length > 40) detail = detail.slice(0, 40) + '…';
+
+        const durMs = tn.durationMs ? chalk.gray(`+${tn.durationMs}ms`) : '';
+        result.push(childPrefix + chalk.bold.cyan('🔧 ') + chalk.white(tn.name) + chalk.gray(detail) + durMs);
       }
 
-      return lines;
+      return result;
     };
 
-    // Build output
-    const lines: string[] = [];
-    lines.push('─'.repeat(60));
+    tree.nestedCalls.forEach((child, i) => {
+      lines.push(...fmtNode(child, '  ', i === tree.nestedCalls.length - 1));
+    });
 
-    if (data.skillTree) {
-      const tree = data.skillTree;
-      lines.push(`📋 ${tree.skill}${fmtUsage(tree.usage)}`);
-      for (let i = 0; i < tree.nestedCalls.length; i++) {
-        const child = tree.nestedCalls[i];
-        lines.push(...formatCallNode(child, '', i === tree.nestedCalls.length - 1));
-      }
-    } else {
-      lines.push('📋 (无 Skill 调用)');
-    }
+    return lines.join('\n');
+  }
 
-    lines.push('─'.repeat(60));
-    lines.push(`⏱️  耗时: ${data.sessionDuration}ms`);
-
-    if (data.totalUsage.inputTokens > 0) {
-      lines.push(`📊 Token: in=${data.totalUsage.inputTokens} out=${data.totalUsage.outputTokens} cache=${data.totalUsage.cacheReadTokens}`);
-    } else {
-      lines.push(`📊 Token: (未获取到)`);
-    }
-
-    if (data.stopReason) {
-      lines.push(`📌 停止原因: ${data.stopReason}`);
-    }
-
-    if (data.failures && data.failures.length > 0) {
-      lines.push(`❌ 失败: ${data.failures.length} 个`);
-      for (const f of data.failures) {
-        const skillPart = f.skillName ? ` (${f.skillName} 内)` : '';
-        lines.push(`   ❌ ${f.toolName}${skillPart}: ${f.error}`);
-      }
-    }
-
-    process.stdout.write(`[Relay]\n${lines.join('\n')}\n\n`);
+  private ts(): string {
+    return new Date().toLocaleTimeString('zh-CN', { hour12: false });
   }
 }
 
