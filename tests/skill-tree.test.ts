@@ -215,14 +215,16 @@ describe('Skill Tree Output Tests', () => {
     const childSkillNode = nestedSkills?.[0];
     expect(childSkillNode?.success).toBe(false);
     expect(childSkillNode?.error).toBeDefined();
-    // The Bash "echo 'parent-skill: child has returned'" may appear in any of the
-    // skill variants (child-skill, parent-skill/child-skill, etc.) since Claude retries
-    // with different paths. Check all nested skills.
-    const allNestedSkills = session?.skillTree?.nestedCalls || [];
-    const hasParentBash = allNestedSkills.some((n: CallNode) =>
-      n.type === 'skill' && n.nestedCalls?.some((c: CallNode) =>
+    // The Bash "echo 'parent-skill: child has returned'" may be:
+    // 1. A direct child tool call of parent-skill (correct: failed skill popped immediately)
+    // 2. A nested tool inside the failed child skill (legacy behavior)
+    // Check both locations.
+    const allNested = session?.skillTree?.nestedCalls || [];
+    const hasParentBash = allNested.some((n: CallNode) =>
+      (n.type === 'tool' && n.name === 'Bash' && !!(n as CallNode & {command?: string})?.command?.includes('parent-skill')) ||
+      (n.type === 'skill' && n.nestedCalls?.some((c: CallNode) =>
         c.type === 'tool' && c.name === 'Bash' && !!(c as CallNode & {command?: string})?.command?.includes('parent-skill')
-      )
+      ))
     );
     expect(hasParentBash).toBe(true);
   });

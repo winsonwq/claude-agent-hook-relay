@@ -402,11 +402,14 @@ export class TranscriptReader {
                   }
                 }
               }
-              // Skill tool_result: set isDone = true immediately and unconditionally.
-              // (pendingTools is always 0 for Skill tools since they don't increment it
-              // when called — they push a new stack entry instead. So we set isDone
-              // here rather than relying on pendingTools count.)
+              // Skill tool_result: set isDone = true.
+              // For failed skills: pop immediately so parent becomes active
+              // For successful skills: wait for popDoneSkills() in next tool_use cycle
               skillEntry.isDone = true;
+              const hasError = !skillEntry.node.success;
+              if (hasError) {
+                skillStack.pop();
+              }
             }
           } else {
             if (skillStack.length > 0) {
