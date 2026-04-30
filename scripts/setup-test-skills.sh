@@ -37,6 +37,36 @@ Input: {"filePath": "example.txt"}
 EOF
 echo "test" > "$SKILLS_DIR/nested-test-skill/example.txt"
 
+# parent-skill (nested directory structure)
+mkdir -p "$SKILLS_DIR/parent-skill/scripts/child-skill"
+cat > "$SKILLS_DIR/parent-skill/SKILL.md" << 'EOF'
+# parent-skill
+
+A test skill demonstrating nested directory structure — the child skill is loaded from `scripts/child-skill/` subdirectory.
+
+## Steps
+
+Step 1: Use the Skill tool to call child-skill (nested under `scripts/child-skill/`)
+Tool: Skill
+Input: {"skill": "child-skill"}
+
+Step 2: Use the Bash tool
+Tool: Bash
+Input: {"command": "echo 'parent-skill: child has returned'"}
+EOF
+
+cat > "$SKILLS_DIR/parent-skill/scripts/child-skill/SKILL.md" << 'EOF'
+# child-skill
+
+A sub-skill loaded from `parent-skill/scripts/child-skill/`. This skill is NOT a top-level skill.
+
+## Steps
+
+Step 1: Use the Bash tool
+Tool: Bash
+Input: {"command": "echo 'child-skill: running in nested directory'"}
+EOF
+
 # level-3-skill
 mkdir -p "$SKILLS_DIR/level-3-skill"
 cat > "$SKILLS_DIR/level-3-skill/SKILL.md" << 'EOF'

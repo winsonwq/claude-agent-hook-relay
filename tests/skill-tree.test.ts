@@ -187,6 +187,29 @@ describe('Skill Tree Output Tests', () => {
     expect(nestedSkills?.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('parent-skill: should track skill loaded from nested scripts/ directory', async () => {
+    // parent-skill has a child-skill under scripts/child-skill/
+    // The child is NOT a top-level skill — it should only be found when parent-skill calls it
+    runClaude('run parent-skill');
+
+    const session = await waitForSession();
+    expect(session?.skillTree).toBeDefined();
+    expect(session?.skillTree?.skill).toBe('parent-skill');
+
+    // Should have at least one nested skill (child-skill) and one sibling tool (Bash)
+    const nestedSkills = session?.skillTree?.nestedCalls.filter(n => n.type === 'skill');
+    const nestedBash = session?.skillTree?.nestedCalls.filter(n => n.type === 'tool' && n.name === 'Bash');
+    expect(nestedSkills?.length).toBeGreaterThanOrEqual(1);
+    expect(nestedBash?.length).toBeGreaterThanOrEqual(1);
+
+    // The nested skill should be child-skill
+    expect(nestedSkills?.[0].name).toBe('child-skill');
+    // child-skill itself should have a nested Bash call
+    expect(nestedSkills?.[0].nestedCalls).toBeDefined();
+    const childBash = nestedSkills?.[0].nestedCalls?.find(n => n.type === 'tool' && n.name === 'Bash');
+    expect(childBash).toBeDefined();
+  });
+
   it('sequential-skill: should call weather-checker twice as sibling skills', async () => {
     runClaude('run sequential-skill');
 
