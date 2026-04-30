@@ -17,7 +17,14 @@ export interface SkillCallNode {
   endTime?: number;
   durationMs?: number;
   nestedCalls: CallNode[];
-  usage?: ModelUsage;  // Token usage for this skill and all nested calls
+  usage?: ModelUsage;
+  // Skill loading result
+  success: boolean;                  // true if skill loaded successfully
+  error?: string;                  // error message if loading failed
+  // Path discovery context: filesystem probes that followed this skill call
+  discoveryCalls: ToolCallNode[];
+  // Inference: did this skill load from a nested directory (e.g. parent-skill/scripts/child-skill/)
+  loadedFromNestedPath: boolean;
 }
 
 export interface ToolCallNode {
@@ -102,6 +109,8 @@ export interface SkillTree {
   durationMs?: number;
   nestedCalls: CallNode[];
   usage?: ModelUsage;
+  // Full root skill node with all skill-loading metadata
+  root: SkillCallNode;
 }
 
 export interface ForwardPayload {

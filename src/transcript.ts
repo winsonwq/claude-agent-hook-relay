@@ -129,11 +129,16 @@ export class TranscriptReader {
    *
    * Returns a single SkillTree rooted at the first (outermost) skill,
    * with nested calls represented as a tree of CallNodes (both SkillCallNodes and ToolCallNodes).
+   *
+   * Also extracts:
+   * - skill loading success/failure (from tool_result <tool_use_error> tags)
+   * - discovery calls (Glob/Read/Bash filesystem probes that follow a skill call)
+   * - loadedFromNestedPath inference (from Base directory meta entries)
    */
   static async analyzeNestedCalls(transcriptPath: string): Promise<SkillTree | null> {
     const entries = await this.read(transcriptPath);
 
-    // Build tool_use_id -> { name, input, skill }
+    // Build tool_use_id -> { name, input, skill, ts }
     const toolUseById = new Map<string, { name: string; input?: Record<string, unknown>; skill: string | null; ts?: number }>();
     for (const entry of entries) {
       if (entry.type === 'assistant') {
@@ -148,6 +153,29 @@ export class TranscriptReader {
               const input = toolUse.input as Record<string, unknown> | undefined;
               const skillName = typeof input?.skill === 'string' ? input.skill : null;
               toolUseById.set(id, { name, input, skill: skillName, ts: entryTs });
+            }
+          }
+        }
+      }
+    }
+
+    // Extract Base directory from isMeta: true entries (for loadedFromNestedPath inference)
+    // Map: skillUseId -> baseDir
+    const skillBaseDir = new Map<string, string>();
+    for (const entry of entries) {
+      if (entry.type === 'user' && (entry as unknown as Record<string, unknown>).isMeta === true) {
+        const content = this.getMessageContent(entry);
+        if (!content) continue;
+        for (const item of content) {
+          if (typeof item === 'object' && (item as Record<string, unknown>).type === 'text') {
+            const text = (item as Record<string, unknown>).text as string;
+            const match = text.match(/Base directory for this skill: (.+)/);
+            if (match) {
+              // This meta entry is attached to the preceding tool_use via sourceToolUseID
+              const sourceToolUseId = (entry as unknown as Record<string, unknown>).sourceToolUseID as string;
+              if (sourceToolUseId) {
+                skillBaseDir.set(sourceToolUseId, match[1]);
+              }
             }
           }
         }
@@ -188,6 +216,44 @@ export class TranscriptReader {
       return info;
     };
 
+    // Helper: check if a tool call looks like a filesystem discovery probe
+    const isDiscoveryCall = (
+      toolName: string,
+      toolInput: Record<string, unknown> | undefined,
+      parentSkillName: string | null
+    ): boolean => {
+      if (!toolInput) return false;
+      switch (toolName) {
+        case 'Glob': {
+          const pattern = (toolInput as Record<string, unknown>).pattern as string;
+          // A Glob that searches for the nested skill name
+          return !!pattern && !!parentSkillName && pattern.includes(parentSkillName);
+        }
+        case 'Read': {
+          const filePath = (toolInput as Record<string, unknown>).file_path as string;
+          // A Read targeting the skills directory
+          return !!filePath && filePath.includes('.claude/skills');
+        }
+        case 'Bash': {
+          const command = (toolInput as Record<string, unknown>).command as string;
+          // A Bash that lists/check the nested skill directory (ls, find, test -d)
+          if (!command) return false;
+          const isProbe = /\b(ls|find|test\s+-d)\b/.test(command);
+          if (!isProbe) return false;
+          // Must reference skills directory and likely the parent skill
+          return command.includes('.claude/skills') || command.includes('skills/');
+        }
+        default:
+          return false;
+      }
+    };
+
+    // Helper: check if baseDir suggests nested path (e.g. .../parent-skill/scripts/child-skill/)
+    const isNestedPath = (baseDir: string): boolean => {
+      // Nested path has scripts/ or other subdirectory markers
+      return /\/scripts\/[^\/]+\//.test(baseDir) || /\/[^\/]+\/scripts\/[^\/]+\//.test(baseDir);
+    };
+
     // Helper: add usage to a skill node
     const addUsageToSkill = (node: SkillCallNode, usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }) => {
       if (!node.usage) {
@@ -203,11 +269,15 @@ export class TranscriptReader {
       node: SkillCallNode;
       pendingTools: number;
       isDone: boolean;
+      // Pending discovery calls collected after this skill's tool_use but before its tool_result
+      pendingDiscovery: ToolCallNode[];
     }
 
     const skillStack: StackEntry[] = [];
-    // Track bare tool calls when no skill is on the stack
     const bareTools: ToolCallNode[] = [];
+
+    // Track assistant turn index for discovery call window
+    let assistantTurnIndex = 0;
 
     const popDoneSkills = () => {
       while (skillStack.length > 1 && skillStack[skillStack.length - 1].isDone) {
@@ -218,6 +288,7 @@ export class TranscriptReader {
     for (const entry of entries) {
       if (entry.type === 'assistant') {
         const content = this.getMessageContent(entry);
+        const thisTurnIndex = assistantTurnIndex++;
 
         // Attribute this assistant turn's usage to the current skill (top of stack)
         const usage = entry.message?.usage;
@@ -250,15 +321,25 @@ export class TranscriptReader {
               toolUseId: toolId,
               startTime: entryTs,
               nestedCalls: [],
+              success: true,   // optimistic — will be updated when tool_result arrives
+              discoveryCalls: [],
+              loadedFromNestedPath: false,
             };
+
+            // Check Base directory meta for loadedFromNestedPath inference
+            const baseDir = skillBaseDir.get(toolId);
+            if (baseDir && isNestedPath(baseDir)) {
+              skillNode.loadedFromNestedPath = true;
+            }
 
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].node.nestedCalls.push(skillNode);
             }
 
-            skillStack.push({ node: skillNode, pendingTools: 0, isDone: false });
+            skillStack.push({ node: skillNode, pendingTools: 0, isDone: false, pendingDiscovery: [] });
           } else {
-            popDoneSkills();
+            // Non-Skill tool: check if it's a discovery call for the most recent skill
+            const isDiscovery = skillStack.length > 0 && isDiscoveryCall(toolName, toolInput, skillStack[skillStack.length - 1].node.name);
 
             const toolInfo = extractToolInfo(toolName, toolInput);
             const toolNode: ToolCallNode = {
@@ -270,10 +351,14 @@ export class TranscriptReader {
             };
 
             if (skillStack.length > 0) {
-              skillStack[skillStack.length - 1].node.nestedCalls.push(toolNode);
-              skillStack[skillStack.length - 1].pendingTools++;
+              if (isDiscovery) {
+                // Attach to parent's pendingDiscovery, not nestedCalls
+                skillStack[skillStack.length - 1].pendingDiscovery.push(toolNode);
+              } else {
+                skillStack[skillStack.length - 1].node.nestedCalls.push(toolNode);
+                skillStack[skillStack.length - 1].pendingTools++;
+              }
             } else {
-              // No skill on stack - this is a bare tool call
               bareTools.push(toolNode);
             }
           }
@@ -291,7 +376,38 @@ export class TranscriptReader {
           const toolUse = toolUseById.get(toolUseId);
 
           if (toolUse?.skill) {
-            // Skill result - nothing to do (Launching status)
+            // This is a skill tool_result — determine success/failure and extract error
+            // Find the matching skill node on the stack
+            const skillEntry = skillStack.find(s => s.node.toolUseId === toolUseId);
+            if (skillEntry) {
+              const resultContent = toolResult.content;
+              if (typeof resultContent === 'string') {
+                const errorMatch = resultContent.match(/<tool_use_error>(.*?)<\/tool_use_error>/s);
+                if (errorMatch) {
+                  skillEntry.node.success = false;
+                  skillEntry.node.error = errorMatch[1].trim();
+                } else {
+                  skillEntry.node.success = !resultContent.includes('<tool_use_error>');
+                }
+              }
+              // Move pending discovery calls to discoveryCalls
+              skillEntry.node.discoveryCalls = [...skillEntry.pendingDiscovery];
+              // Update loadedFromNestedPath based on discovery calls
+              if (!skillEntry.node.loadedFromNestedPath) {
+                for (const dc of skillEntry.node.discoveryCalls) {
+                  const path = dc.file || dc.pattern || dc.command || '';
+                  if (/\/scripts\/[^\/]+\//.test(path)) {
+                    skillEntry.node.loadedFromNestedPath = true;
+                    break;
+                  }
+                }
+              }
+              // Skill tool_result: set isDone = true immediately and unconditionally.
+              // (pendingTools is always 0 for Skill tools since they don't increment it
+              // when called — they push a new stack entry instead. So we set isDone
+              // here rather than relying on pendingTools count.)
+              skillEntry.isDone = true;
+            }
           } else {
             if (skillStack.length > 0) {
               skillStack[skillStack.length - 1].pendingTools--;
@@ -306,14 +422,23 @@ export class TranscriptReader {
 
     // Return the root skill (first skill on stack)
     if (skillStack.length === 0) {
-      // No real skills were called
-      // If we have bare tool calls, create a synthetic <no-skill> root
       if (bareTools.length > 0) {
-        return {
-          skill: '<no-skill>',
+        const bareRoot: SkillCallNode = {
+          type: 'skill',
+          name: '<no-skill>',
           toolUseId: '',
           startTime: bareTools[0].startTime ?? Date.now(),
           nestedCalls: bareTools,
+          success: true,
+          discoveryCalls: [],
+          loadedFromNestedPath: false,
+        };
+        return {
+          skill: '<no-skill>',
+          toolUseId: '',
+          startTime: bareRoot.startTime,
+          nestedCalls: bareTools,
+          root: bareRoot,
         };
       }
       return null;
@@ -326,6 +451,7 @@ export class TranscriptReader {
       startTime: root.startTime,
       nestedCalls: root.nestedCalls,
       usage: root.usage,
+      root,
     };
   }
 }

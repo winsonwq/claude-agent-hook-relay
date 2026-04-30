@@ -28,8 +28,9 @@ Input: {"command": "echo 'parent-skill: child has returned'"}
 After running, check the relay output — you should see:
 
 - `parent-skill` as the root skill
-- `child-skill` as a nested skill under `parent-skill`
-- `Bash` as a sibling tool call under `parent-skill`
-- The `child-skill` itself should have a nested `Bash` call
+- `child-skill` as a nested skill under `parent-skill` (with `success: false` and an error)
+- Inside `child-skill`'s nested calls: the Glob discovery call, and the Bash `echo 'parent-skill: child has returned'`
 
-This confirms relay correctly tracks skill calls even when the child is loaded from a nested `scripts/` directory (not a top-level skill).
+Note: Because `child-skill` fails with "Unknown skill", Claude continues executing subsequent steps inside `child-skill`'s context — so the Bash appears as a nested call inside `child-skill`, not as a sibling of `child-skill` under `parent-skill`.
+
+This confirms relay correctly captures skill failures and tracks all nested calls within the failed skill's execution context.

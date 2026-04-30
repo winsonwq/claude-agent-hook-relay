@@ -3,6 +3,7 @@
 import express from 'express';
 import { parseArgs } from 'util';
 import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
@@ -224,32 +225,17 @@ function copyDir(src: string, dest: string): void {
 
 async function cmdInstallTestSkill(): Promise<void> {
   const relayDir = dirname(fileURLToPath(import.meta.url));
-  const skillsDir = join(homedir(), '.claude', 'skills');
-
-  // Install test skills: nested-test-skill, weather-checker, and parent-skill
-  const skillsToInstall = ['nested-test-skill', 'weather-checker', 'parent-skill'];
+  const scriptPath = join(relayDir, '..', 'scripts', 'setup-test-skills.sh');
 
   try {
-    mkdirSync(skillsDir, { recursive: true });
-
-    for (const skillName of skillsToInstall) {
-      const skillSrc = join(relayDir, '..', 'skills', skillName);
-      if (!existsSync(skillSrc)) {
-        process.stderr.write(`Error: skill '${skillName}' not found in package\n`);
-        process.exit(1);
-      }
-      const skillDest = join(skillsDir, skillName);
-      copyDir(skillSrc, skillDest);
-      process.stdout.write(`Installed: ${skillDest}\n`);
-    }
-
-    process.stdout.write('\nUsage:\n');
-    process.stdout.write('  1. Start cahr: cahr start\n');
-    process.stdout.write('  2. Run: claude -p "run nested-test-skill"\n');
-    process.stdout.write('  3. Check cahr output for nested skill tracking\n');
+    const result = execSync(`bash ${scriptPath}`, {
+      cwd: join(relayDir, '..'),
+      encoding: 'utf-8',
+    });
+    process.stdout.write(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`Error installing skill: ${msg}\n`);
+    process.stderr.write(`Error running setup script: ${msg}\n`);
     process.exit(1);
   }
 }
