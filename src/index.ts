@@ -226,8 +226,8 @@ async function cmdInstallTestSkill(): Promise<void> {
   const relayDir = dirname(fileURLToPath(import.meta.url));
   const skillsDir = join(homedir(), '.claude', 'skills');
 
-  // Install both skills: nested-test-skill and weather-checker
-  const skillsToInstall = ['nested-test-skill', 'weather-checker'];
+  // Install test skills: nested-test-skill, weather-checker, and parent-skill
+  const skillsToInstall = ['nested-test-skill', 'weather-checker', 'parent-skill'];
 
   try {
     mkdirSync(skillsDir, { recursive: true });
