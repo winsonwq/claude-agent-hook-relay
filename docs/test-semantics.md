@@ -12,33 +12,26 @@
 
 ---
 
-## 输出格式说明
+## Console Forwarder 输出格式
 
-### Console Forwarder（relay 实时输出）
-
-relay 启动后，每个 session 结束时打印一棵树状结构：
+relay 启动后，每个 session 结束时打印完整的执行摘要：
 
 ```
-🤖 parent-skill 15000ms
-├── 🤖 scripts/child-skill 2000ms
-│   └── (error)
-└── 🔧 Bash echo 'parent-skill: child has returned' +50ms
+📋 Session abc123… · 10000ms
+────────────────────────────────────────────────────────────
+🤖 weather-checker 10000ms
+└── 🔧 Bash echo 'Weather check: ' && date +100ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=1200, out=340 cache=9800
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
-- `🤖` = skill 节点
-- `🔧` = tool 节点
-- 缩进表示调用层级
-
-### Transcript（Claude Code 原始输出）
-
-transcript 是 Claude Code 内部的执行日志，按时间顺序记录每个 tool_use 和 tool_result：
-
-```
-TOOL_USE: Skill {skill: 'child-skill'}          ← 子 skill 开始
-TOOL_RET: <error> Unknown skill                 ← 子 skill 失败
-TOOL_USE: Bash echo 'parent-skill: child has returned'  ← 父 skill 继续执行
-TOOL_RET: parent-skill: child has returned      ← 但错误地归在了 child-skill 下
-```
+- `📋 Session` 行：session ID（截断）+ 总耗时
+- `🤖` = skill 节点，`🔧` = tool 节点
+- `└──` = 最后一项，`├──` = 非最后一项
+- `📊 Tokens` 行：总 token 消耗（各层级汇总）
+- `❌ Failures` 节：记录所有失败的 tool/skill 调用及错误信息
 
 ---
 
@@ -53,8 +46,14 @@ TOOL_RET: parent-skill: child has returned      ← 但错误地归在了 child-
 **Console 输出：**
 
 ```
+📋 Session abc123… · 10000ms
+────────────────────────────────────────────────────────────
 🤖 weather-checker 10000ms
 └── 🔧 Bash echo 'Weather check: ' && date +100ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=1200, out=340 cache=9800
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **Transcript：**
@@ -65,9 +64,8 @@ TOOL_RET: Weather check: Fri May  1 12:00:00 CST 2026
 ```
 
 **验证点：**
-- `skillTree.skill === 'weather-checker'` — 根节点 skill 名正确
-- `nestedCalls` 包含至少一个 `type: 'tool', name: 'Bash'` 的节点
-- 该 Bash 节点的 `command` 包含 `'date'`
+- `skillTree.skill === 'weather-checker'`
+- `nestedCalls` 包含 `type: 'tool', name: 'Bash'`，`command` 包含 `'date'`
 
 **实际意义：** 验证 relay 能正确捕获 skill 的根节点信息，以及该 skill 直接调用的工具（不是子 skill）。
 
@@ -82,9 +80,15 @@ TOOL_RET: Weather check: Fri May  1 12:00:00 CST 2026
 **Console 输出：**
 
 ```
+📋 Session def456… · 20000ms
+────────────────────────────────────────────────────────────
 🤖 nested-test-skill 20000ms
-└── 🤖 weather-checker 12000ms
+└── 🤖 weather-checker 12000ms (1 calls)
     └── 🔧 Bash echo 'Weather check: ' && date +100ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=2100, out=340 cache=18000
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **Transcript：**
@@ -113,10 +117,16 @@ TOOL_RET: skill complete
 **Console 输出：**
 
 ```
+📋 Session ghi789… · 30000ms
+────────────────────────────────────────────────────────────
 🤖 level-3-skill 30000ms
-└── 🤖 mid-skill 22000ms
-    └── 🤖 leaf-skill 15000ms
+└── 🤖 mid-skill 22000ms (1 calls)
+    └── 🤖 leaf-skill 15000ms (1 calls)
         └── 🔧 Bash echo 'deep' +50ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=3200, out=450 cache=25000
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **Transcript：**
@@ -144,25 +154,23 @@ TOOL_RET: skill complete
 
 **语义：** 子 skill（`scripts/child-skill/`）不在顶级 skills 目录中，只有 parent-skill 调用它时才被加载。调用会失败，但 parent 仍能继续执行。
 
-**Console 输出（修复后）：**
+**Console 输出：**
 
 ```
+📋 Session jkl012… · 15000ms
+────────────────────────────────────────────────────────────
 🤖 parent-skill 15000ms
-├── 🤖 scripts/child-skill 2000ms (error)
-│   └── (探查调用 discoveryCalls)
+├── 🤖 scripts/child-skill 2000ms (1 calls)
 └── 🔧 Bash echo 'parent-skill: child has returned' +50ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=1800, out=300 cache=15000
+📌 Reason  end_turn
+❌ Failures (1)
+   ✗ child-skill [scripts/child-skill]: Unknown skill
+────────────────────────────────────────────────────────────
 ```
 
-**修复前 Transcript（bug 状态）：**
-
-```
-TOOL_USE: Skill {skill: 'child-skill'}              ← 子 skill 开始
-TOOL_RET: <error> Unknown skill                      ← 子 skill 失败
-TOOL_USE: Bash echo 'parent-skill: child has returned'  ← 父 skill 继续
-TOOL_RET: parent-skill: child has returned             ← 错误归在 child-skill 下
-```
-
-**修复后 Transcript（正确）：**
+**Transcript：**
 
 ```
 TOOL_USE: Skill {skill: 'child-skill'}
@@ -173,7 +181,7 @@ TOOL_RET: parent-skill: child has returned
 
 **验证点：**
 - `nestedCalls` 中存在子 skill 节点，name 匹配 `child-skill`
-- `success === false`，`error` 有定义 — 确认失败被正确捕获
+- `success === false`，`error` 有定义
 - parent 的 `echo 'parent-skill: child has returned'` 被正确归到 parent 下，而非失败子 skill 下
 
 **实际意义：** 验证两个关键行为：
@@ -191,11 +199,17 @@ TOOL_RET: parent-skill: child has returned
 **Console 输出：**
 
 ```
+📋 Session mno345… · 25000ms
+────────────────────────────────────────────────────────────
 🤖 sequential-skill 25000ms
-├── 🤖 weather-checker 8000ms
+├── 🤖 weather-checker 8000ms (1 calls)
 │   └── 🔧 Bash echo 'Weather check: ' && date +100ms
-└── 🤖 weather-checker 10000ms
+└── 🤖 weather-checker 10000ms (1 calls)
     └── 🔧 Bash echo done +50ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=3200, out=680 cache=26000
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **Transcript：**
@@ -225,18 +239,9 @@ TOOL_RET: skill complete
 
 **语义：** API 真实调用，有 token 消耗。
 
-**Console 输出：**
-
-```
-🤖 weather-checker 10000ms (inputTokens: 1200, cacheReadTokens: 9800)
-└── 🔧 Bash echo 'Weather check: ' && date +100ms
-```
-
 **验证点：**
 - `skillTree.usage` 存在
-- `inputTokens > 100` — 真实调用了 API
-- `outputTokens > 10`
-- `cacheReadTokens > 0` — 使用了缓存
+- `inputTokens > 100`，`outputTokens > 10`，`cacheReadTokens > 0`
 
 **实际意义：** 验证 token 用量统计的完整性，缓存读取被正确计入成本。
 
@@ -247,14 +252,6 @@ TOOL_RET: skill complete
 **命令：** `run nested-test-skill`
 
 **语义：** 父 skill 和子 skill 都有独立的 API 调用，各自消耗 token。
-
-**Console 输出：**
-
-```
-🤖 nested-test-skill 20000ms (inputTokens: 2100, cacheReadTokens: 18000)
-└── 🤖 weather-checker 12000ms (inputTokens: 1100, cacheReadTokens: 8900)
-    └── 🔧 Bash echo 'Weather check: ' && date +100ms
-```
 
 **验证点：**
 - 父 skill（root）有 `usage`，`inputTokens > 100`，`cacheReadTokens > 0`
@@ -273,9 +270,15 @@ TOOL_RET: skill complete
 **Console 输出：**
 
 ```
+📋 Session pqr678… · 5000ms
+────────────────────────────────────────────────────────────
 🤖 <no-skill> 5000ms
 ├── 🔧 Bash ls -la /tmp +200ms
 └── 🔧 Read /tmp +300ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=600, out=180 cache=2000
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **Transcript：**
