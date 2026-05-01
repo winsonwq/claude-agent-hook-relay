@@ -287,3 +287,30 @@ npm view claude-agent-hook-relay version
 - `docs/api.md` - API 端点说明
 - `docs/otel-integration.md` - OpenTelemetry 集成（SkillTree → OTel Span 格式）
 - `docs/data-collection-matrix.md` - HTTP Hook vs 原生 OTel 数据能力对比
+- `docs/test-semantics.md` - 测试语义与输出格式规范
+- `docs/token-accounting.md` - Token 计算与费用估算
+- `docs/skill-discovery-tracing-v1.0.0-spec.md` - Skill 发现追踪协议规范
+
+## 文档同步规则
+
+代码变更后必须同步更新相关文档。规则如下：
+
+| 代码变更类型 | 必须同步更新的文档 |
+|-------------|------------------|
+| 新增 / 修改 / 删除 CLI 命令 | `README.md`（命令列表 + 使用示例） |
+| 新增 / 修改 / 删除环境变量 | `README.md`（环境变量表格） |
+| 新增 / 修改 / 删除 API 端点 | `docs/api.md` |
+| 新增 / 修改 / 删除类型定义 | `docs/api.md` + `SPEC.md` |
+| 新增 / 修改 / 删除 Forwarder | `README.md`（扩展 Forwarder 章节） |
+| 新增 / 修改 / 删除 Console 输出格式 | `README.md`（cahr 输出示例） |
+| 新增 / 修改 / 删除测试 Skill | `README.md`（安装测试 Skill 说明） |
+| 新增 / 修改 / 删除文档文件 | `README.md`（更多文档章节）+ `AGENTS.md`（本文档列表） |
+| 新增 / 修改 / 删除 OTel 相关逻辑 | `docs/otel-integration.md` |
+
+**同步时机**：代码变更提交时同步，不要事后补。
+
+**检查清单**（提交前自检）：
+1. 本次变更涉及哪些类型的修改？
+2. 对应的文档是否都已更新？
+3. 是否有新增文件需要加入文档索引？
+4. `package.json` 版本是否需要更新（功能变更时）？

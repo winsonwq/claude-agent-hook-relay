@@ -95,9 +95,11 @@ cahr start 9000
 cahr install-test-skill
 ```
 
-这会把两个测试 Skill（`nested-test-skill` 和 `weather-checker`）安装到 `~/.claude/skills/`。
+这会把测试 Skill 安装到 `~/.claude/skills/`，包括：
 
-其他测试 Skill（`level-3-skill`、`sequential-skill`）需要手动创建，参见 [TEST-RESULTS.md](TEST-RESULTS.md)。
+- `parent-skill`（父 Skill，调用子 Skill 和工具）
+- `child-skill`（子 Skill，被父 Skill 调用）
+- `nested-test-skill` 和 `weather-checker`（其他测试 Skill）
 
 **第三步：用 Claude Code 触发工具调用**
 
@@ -116,35 +118,37 @@ claude -p "run nested-test-skill"
 回到 cahr 终端，应该能看到类似这样的输出：
 
 ```
-[Relay]
 ────────────────────────────────────────────────────────────
-📋 weather-checker
-└── 🔧 Bash: echo 'Weather check: ' && date
+📋 Session abc-123… · 30000ms
+🤖 weather-checker
+├── 🔧 Bash echo 'Weather check: ' && date +7966ms
 ────────────────────────────────────────────────────────────
-⏱️  耗时: 7966ms
-📊 Token: (未获取到)
+📊 Tokens  in=1500, out=80
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 **嵌套 Skill 示例**：
 
 ```
-[Relay]
 ────────────────────────────────────────────────────────────
-📋 nested-test-skill
-├── 🤖 Skill: weather-checker
-│   └── 🔧 Bash: echo 'Weather check: ' && date
-├── 🔧 Bash: date
-└── 🔧 Read: /home/aqiu/.claude/skills/nested-test-skill/example.txt
+📋 Session def-456… · 17473ms
+🤖 nested-test-skill
+├── 🤖 weather-checker (1 calls)
+│   └── 🔧 Bash echo 'Weather check: ' && date +7850ms
+├── 🔧 Bash date +120ms
+└── 🔧 Read /home/aqiu/.claude/skills/nested-test-skill/example.txt +95ms
 ────────────────────────────────────────────────────────────
-⏱️  耗时: 17473ms
-📊 Token: (未获取到)
+📊 Tokens  in=3200, out=150
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
 ```
 
 输出说明：
-- `📋` 开头的是入口 Skill 名称
-- `🤖` 表示 Skill 节点（嵌套的子 Skill）
-- `🔧` 表示 Tool 节点（调用的工具）
-- Tool 节点会显示工具特定信息：`command`、`file`、`url` 等
+- `📋 Session` 开头的是会话信息（sessionId 截断 + 总耗时）
+- `🤖` 表示 Skill 节点，带耗时和嵌套调用数
+- `🔧` 表示 Tool 节点，显示工具名、具体参数（command/file/url 等）和耗时
+- Tool 节点参数会截断到 40 字符
 
 **第五步：停止 cahr**
 
@@ -158,6 +162,7 @@ claude -p "run nested-test-skill"
 cahr --version                  # 查看版本，确认安装成功
 cahr status                     # 查看 Hook 安装状态
 cahr start [端口]               # 启动 cahr
+cahr init [--url <url>]         # 初始化 Claude Code hooks（默认 http://localhost:8080）
 cahr install-test-skill         # 安装测试 Skill（用于验证嵌套 Skill 追踪）
 cahr uninstall                  # 移除 Claude Code 中的 Hook 配置
 ```
@@ -231,18 +236,36 @@ npm run test:port 8080       # 连接已有 cahr（指定端口）运行测试
 
 Session 结束时，cahr 会打印汇总：
 
+```
+────────────────────────────────────────────────────────────
+📋 Session abc-123… · 30000ms
+🤖 batch  500ms
+├── 🔧 Bash date +45ms
+└── 🔧 Read /path/file +120ms
+────────────────────────────────────────────────────────────
+📊 Tokens  in=5000, out=300 cache=20000
+📌 Reason  end_turn
+────────────────────────────────────────────────────────────
+```
+
+转发到 HTTP 服务时，数据格式为：
+
 ```json
 {
   "sessionId": "abc-123",
   "sourceId": "my-workstation",
-  "skillCount": 1,
-  "skillList": [
-    {
-      "skill": "batch",
-      "durationMs": 500,
-      "nestedCalls": ["Bash", "Read"]
-    }
-  ],
+  "skillTree": {
+    "skill": "batch",
+    "toolUseId": "inv_001",
+    "durationMs": 500,
+    "success": true,
+    "discoveryCalls": [],
+    "loadedFromNestedPath": false,
+    "nestedCalls": [
+      { "type": "tool", "name": "Bash", "command": "date", "durationMs": 45 },
+      { "type": "tool", "name": "Read", "file": "/path/file", "durationMs": 120 }
+    ]
+  },
   "totalUsage": {
     "inputTokens": 5000,
     "outputTokens": 300,
@@ -251,7 +274,8 @@ Session 结束时，cahr 会打印汇总：
     "costUsd": 0.05
   },
   "sessionDuration": 30000,
-  "stopReason": "end_turn"
+  "stopReason": "end_turn",
+  "failures": []
 }
 ```
 
@@ -278,6 +302,8 @@ HTTP Hook 提供了原生 OTel 无法做到的能力：
 | 标准格式导出 | ❌ | ✅ |
 
 详细对比见 [docs/data-collection-matrix.md](docs/data-collection-matrix.md)。
+
+> 💡 **Tip**：OtelForwarder 会自动合并所有 Skill Span 和原生 OTel Span 为统一的服务名。可通过 `RELAY_OTEL_SERVICE_NAME` 环境变量指定合并后的服务名，默认为 `claude-code`。
 
 ---
 
@@ -311,6 +337,19 @@ HTTP Hook 提供了原生 OTel 无法做到的能力：
 | WorktreeRemove | /hook/worktree-remove |
 | Elicitation | /hook/elicitation |
 | ElicitationResult | /hook/elicitation-result |
+
+---
+
+## 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `RELAY_HTTP_URL` | HTTP 转发目标地址（与 `RELAY_OTEL_URL` 二选一） |
+| `RELAY_AUTH_HEADER` | HTTP 转发 Authorization header 值 |
+| `RELAY_OTEL_URL` | OpenTelemetry 收集器地址（与 `RELAY_HTTP_URL` 二选一） |
+| `RELAY_OTEL_AUTH_HEADER` | OTel Authorization header 值 |
+| `RELAY_OTEL_SERVICE_NAME` | 合并到 Jaeger 等平台的服务名，默认为 `claude-code` |
+| `RELAY_SOURCE_ID` | 事件来源标识（如终端名、用户 ID） |
 
 ---
 
@@ -355,6 +394,9 @@ const forwarder = new CompositeForwarder([
 - [docs/data-collection-matrix.md](docs/data-collection-matrix.md) - 数据覆盖对比
 - [docs/otel-integration.md](docs/otel-integration.md) - OpenTelemetry 集成设计
 - [docs/secondary-development.md](docs/secondary-development.md) - 二次开发指南
+- [docs/test-semantics.md](docs/test-semantics.md) - 测试语义与输出格式规范
+- [docs/token-accounting.md](docs/token-accounting.md) - Token 计算与费用估算
+- [docs/skill-discovery-tracing-v1.0.0-spec.md](docs/skill-discovery-tracing-v1.0.0-spec.md) - Skill 发现追踪协议规范
 
 ---
 
