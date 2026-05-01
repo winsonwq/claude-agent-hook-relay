@@ -394,8 +394,8 @@ const forwarder = new CompositeForwarder([
 - [docs/data-collection-matrix.md](docs/data-collection-matrix.md) - 数据覆盖对比
 - [docs/otel-integration.md](docs/otel-integration.md) - OpenTelemetry 集成设计
 - [docs/secondary-development.md](docs/secondary-development.md) - 二次开发指南
-- [docs/test-semantics.md](docs/test-semantics.md) - 测试语义与输出格式规范
-- [docs/token-accounting.md](docs/token-accounting.md) - Token 计算与费用估算
+- [docs/specs/test-semantics.md](docs/specs/test-semantics.md) - 测试语义与输出格式规范
+- [docs/specs/token-accounting.md](docs/specs/token-accounting.md) - Token 计算与费用估算
 - [docs/specs/skill-discovery-tracing-v1.0.0-spec.md](docs/specs/skill-discovery-tracing-v1.0.0-spec.md) - Skill 发现追踪协议规范
 
 ---
