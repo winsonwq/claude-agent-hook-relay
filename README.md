@@ -396,7 +396,7 @@ const forwarder = new CompositeForwarder([
 - [docs/secondary-development.md](docs/secondary-development.md) - 二次开发指南
 - [docs/test-semantics.md](docs/test-semantics.md) - 测试语义与输出格式规范
 - [docs/token-accounting.md](docs/token-accounting.md) - Token 计算与费用估算
-- [docs/skill-discovery-tracing-v1.0.0-spec.md](docs/skill-discovery-tracing-v1.0.0-spec.md) - Skill 发现追踪协议规范
+- [docs/specs/skill-discovery-tracing-v1.0.0-spec.md](docs/specs/skill-discovery-tracing-v1.0.0-spec.md) - Skill 发现追踪协议规范
 
 ---
 

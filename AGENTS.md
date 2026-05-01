@@ -289,7 +289,7 @@ npm view claude-agent-hook-relay version
 - `docs/data-collection-matrix.md` - HTTP Hook vs 原生 OTel 数据能力对比
 - `docs/test-semantics.md` - 测试语义与输出格式规范
 - `docs/token-accounting.md` - Token 计算与费用估算
-- `docs/skill-discovery-tracing-v1.0.0-spec.md` - Skill 发现追踪协议规范
+- `docs/specs/skill-discovery-tracing-v1.0.0-spec.md` - Skill 发现追踪协议规范
 
 ## 文档同步规则
 
