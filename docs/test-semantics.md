@@ -12,73 +12,32 @@
 
 ---
 
-## API 响应结构
+## 输出格式说明
 
-每个 session 的完整响应如下：
+### Console Forwarder（relay 实时输出）
 
-```json
-{
-  "sessionId": "01jx8xxxxx",
-  "sourceId": "01jx8xxxxx",
-  "skillTree": { ... },
-  "transcriptPath": "/tmp/relay/transcripts/01jx8xxxxx.json",
-  "createdAt": 1746081600000,
-  "updatedAt": 1746081615000
-}
+relay 启动后，每个 session 结束时打印一棵树状结构：
+
+```
+🤖 parent-skill 15000ms
+├── 🤖 scripts/child-skill 2000ms
+│   └── (error)
+└── 🔧 Bash echo 'parent-skill: child has returned' +50ms
 ```
 
-### SkillTree 节点
+- `🤖` = skill 节点
+- `🔧` = tool 节点
+- 缩进表示调用层级
 
-```json
-{
-  "skill": "weather-checker",
-  "toolUseId": "01jx8xxxxx",
-  "startTime": 1746081600000,
-  "endTime": 1746081615000,
-  "durationMs": 15000,
-  "nestedCalls": [ ... ],
-  "usage": {
-    "inputTokens": 1200,
-    "outputTokens": 340,
-    "cacheReadTokens": 9800,
-    "cacheCreationTokens": 0,
-    "costUsd": 0.00123
-  }
-}
+### Transcript（Claude Code 原始输出）
+
+transcript 是 Claude Code 内部的执行日志，按时间顺序记录每个 tool_use 和 tool_result：
+
 ```
-
-### CallNode 节点
-
-```json
-{
-  "type": "tool",
-  "name": "Bash",
-  "toolUseId": "01jx8yyyyy",
-  "command": "echo 'Weather check: ' && date",
-  "startTime": 1746081602000,
-  "endTime": 1746081602100,
-  "durationMs": 100
-}
-```
-
-```json
-{
-  "type": "skill",
-  "name": "weather-checker",
-  "toolUseId": "01jx8zzzzz",
-  "startTime": 1746081602000,
-  "endTime": 1746081610000,
-  "durationMs": 8000,
-  "nestedCalls": [ ... ],
-  "usage": {
-    "inputTokens": 1100,
-    "outputTokens": 280,
-    "cacheReadTokens": 8900,
-    "cacheCreationTokens": 0,
-    "costUsd": 0.00109
-  },
-  "success": true
-}
+TOOL_USE: Skill {skill: 'child-skill'}          ← 子 skill 开始
+TOOL_RET: <error> Unknown skill                 ← 子 skill 失败
+TOOL_USE: Bash echo 'parent-skill: child has returned'  ← 父 skill 继续执行
+TOOL_RET: parent-skill: child has returned      ← 但错误地归在了 child-skill 下
 ```
 
 ---
@@ -91,44 +50,26 @@
 
 **语义：** 调用一个 skill，该 skill 内部执行了一个 Bash 工具调用。
 
+**Console 输出：**
+
+```
+🤖 weather-checker 10000ms
+└── 🔧 Bash echo 'Weather check: ' && date +100ms
+```
+
+**Transcript：**
+
+```
+TOOL_USE: Bash echo 'Weather check: ' && date
+TOOL_RET: Weather check: Fri May  1 12:00:00 CST 2026
+```
+
 **验证点：**
 - `skillTree.skill === 'weather-checker'` — 根节点 skill 名正确
 - `nestedCalls` 包含至少一个 `type: 'tool', name: 'Bash'` 的节点
 - 该 Bash 节点的 `command` 包含 `'date'`
 
 **实际意义：** 验证 relay 能正确捕获 skill 的根节点信息，以及该 skill 直接调用的工具（不是子 skill）。
-
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "weather-checker",
-    "toolUseId": "01jx8aaaaa",
-    "startTime": 1746081600000,
-    "endTime": 1746081610000,
-    "durationMs": 10000,
-    "nestedCalls": [
-      {
-        "type": "tool",
-        "name": "Bash",
-        "toolUseId": "01jx8bbbbb",
-        "command": "echo 'Weather check: ' && date",
-        "startTime": 1746081602000,
-        "endTime": 1746081602100,
-        "durationMs": 100
-      }
-    ],
-    "usage": {
-      "inputTokens": 1200,
-      "outputTokens": 340,
-      "cacheReadTokens": 9800,
-      "cacheCreationTokens": 0,
-      "costUsd": 0.00123
-    }
-  }
-}
-```
 
 ---
 
@@ -138,50 +79,28 @@
 
 **语义：** 父 skill（A）调用了另一个子 skill（B），子 skill 内部有自己的工具调用。
 
+**Console 输出：**
+
+```
+🤖 nested-test-skill 20000ms
+└── 🤖 weather-checker 12000ms
+    └── 🔧 Bash echo 'Weather check: ' && date +100ms
+```
+
+**Transcript：**
+
+```
+TOOL_USE: Skill {skill: 'weather-checker'}
+TOOL_USE: Bash echo 'Weather check: ' && date
+TOOL_RET: Weather check: Fri May  1 12:00:00 CST 2026
+TOOL_RET: skill complete
+```
+
 **验证点：**
 - `nestedCalls` 中存在 `type: 'skill'` 节点，name 为 `'weather-checker'`
 - 该子 skill 节点下还有 `type: 'tool', name: 'Bash'` 的嵌套调用
 
 **实际意义：** 验证嵌套调用链（A → B → tool）的完整性和正确归属性。子 skill 的工具调用不会被错误地挂到父 skill 下。
-
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "nested-test-skill",
-    "toolUseId": "01jx8ccccc",
-    "startTime": 1746081600000,
-    "durationMs": 20000,
-    "nestedCalls": [
-      {
-        "type": "skill",
-        "name": "weather-checker",
-        "toolUseId": "01jx8dddddd",
-        "startTime": 1746081601000,
-        "durationMs": 12000,
-        "nestedCalls": [
-          {
-            "type": "tool",
-            "name": "Bash",
-            "toolUseId": "01jx8eeeee",
-            "command": "echo 'Weather check: ' && date",
-            "startTime": 1746081603000,
-            "durationMs": 100
-          }
-        ],
-        "usage": {
-          "inputTokens": 1100,
-          "outputTokens": 280,
-          "cacheReadTokens": 8900,
-          "cacheCreationTokens": 0,
-          "costUsd": 0.00109
-        }
-      }
-    ]
-  }
-}
-```
 
 ---
 
@@ -191,51 +110,31 @@
 
 **语义：** 三层深的 skill 调用链（A → B → C），验证多层嵌套的能力。
 
+**Console 输出：**
+
+```
+🤖 level-3-skill 30000ms
+└── 🤖 mid-skill 22000ms
+    └── 🤖 leaf-skill 15000ms
+        └── 🔧 Bash echo 'deep' +50ms
+```
+
+**Transcript：**
+
+```
+TOOL_USE: Skill {skill: 'mid-skill'}
+TOOL_USE: Skill {skill: 'leaf-skill'}
+TOOL_USE: Bash echo 'deep'
+TOOL_RET: deep
+TOOL_RET: skill complete
+TOOL_RET: skill complete
+```
+
 **验证点：**
 - `nestedCalls.length > 0`
 - `nestedCalls` 中至少有一个 `type: 'skill'` 节点
 
 **实际意义：** 验证 relay 能处理深度嵌套场景，不会因嵌套层数多而丢失节点或崩溃。
-
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "level-3-skill",
-    "toolUseId": "01jx8fffff",
-    "startTime": 1746081600000,
-    "durationMs": 30000,
-    "nestedCalls": [
-      {
-        "type": "skill",
-        "name": "mid-skill",
-        "toolUseId": "01jx8ggggg",
-        "startTime": 1746081601000,
-        "durationMs": 22000,
-        "nestedCalls": [
-          {
-            "type": "skill",
-            "name": "leaf-skill",
-            "toolUseId": "01jx8hhhhh",
-            "startTime": 1746081605000,
-            "durationMs": 15000,
-            "nestedCalls": [
-              {
-                "type": "tool",
-                "name": "Bash",
-                "toolUseId": "01jx8iiiiii",
-                "command": "echo 'deep'",
-                "durationMs": 50
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-}
-```
 
 ---
 
@@ -244,6 +143,33 @@
 **命令：** `run parent-skill`
 
 **语义：** 子 skill（`scripts/child-skill/`）不在顶级 skills 目录中，只有 parent-skill 调用它时才被加载。调用会失败，但 parent 仍能继续执行。
+
+**Console 输出（修复后）：**
+
+```
+🤖 parent-skill 15000ms
+├── 🤖 scripts/child-skill 2000ms (error)
+│   └── (探查调用 discoveryCalls)
+└── 🔧 Bash echo 'parent-skill: child has returned' +50ms
+```
+
+**修复前 Transcript（bug 状态）：**
+
+```
+TOOL_USE: Skill {skill: 'child-skill'}              ← 子 skill 开始
+TOOL_RET: <error> Unknown skill                      ← 子 skill 失败
+TOOL_USE: Bash echo 'parent-skill: child has returned'  ← 父 skill 继续
+TOOL_RET: parent-skill: child has returned             ← 错误归在 child-skill 下
+```
+
+**修复后 Transcript（正确）：**
+
+```
+TOOL_USE: Skill {skill: 'child-skill'}
+TOOL_RET: <error> Unknown skill
+TOOL_USE: Bash echo 'parent-skill: child has returned'
+TOOL_RET: parent-skill: child has returned
+```
 
 **验证点：**
 - `nestedCalls` 中存在子 skill 节点，name 匹配 `child-skill`
@@ -254,39 +180,6 @@
 1. relay 能发现并加载嵌套目录结构中的 skill（`scripts/` 子目录）
 2. **失败 skill 立即弹出**：子 skill 失败后，parent 的后续工具调用不会错误地挂在子 skill 树下
 
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "parent-skill",
-    "toolUseId": "01jx8jjjjj",
-    "startTime": 1746081600000,
-    "durationMs": 15000,
-    "nestedCalls": [
-      {
-        "type": "skill",
-        "name": "child-skill",
-        "toolUseId": "01jx8kkkkk",
-        "startTime": 1746081601000,
-        "durationMs": 2000,
-        "success": false,
-        "error": "Unknown skill: child-skill",
-        "nestedCalls": []
-      },
-      {
-        "type": "tool",
-        "name": "Bash",
-        "toolUseId": "01jx8lllll",
-        "command": "echo 'parent-skill: child has returned'",
-        "startTime": 1746081604000,
-        "durationMs": 50
-      }
-    ]
-  }
-}
-```
-
 ---
 
 ### 5. sequential-skill: should call weather-checker twice as sibling skills
@@ -295,58 +188,34 @@
 
 **语义：** 同一个父 skill 顺序调用同一个子 skill 两次，两次调用是兄弟节点关系。
 
+**Console 输出：**
+
+```
+🤖 sequential-skill 25000ms
+├── 🤖 weather-checker 8000ms
+│   └── 🔧 Bash echo 'Weather check: ' && date +100ms
+└── 🤖 weather-checker 10000ms
+    └── 🔧 Bash echo done +50ms
+```
+
+**Transcript：**
+
+```
+TOOL_USE: Skill {skill: 'weather-checker'}    ← 第一次调用
+TOOL_USE: Bash echo 'Weather check: ' && date
+TOOL_RET: Weather check: ...
+TOOL_RET: skill complete
+TOOL_USE: Skill {skill: 'weather-checker'}    ← 第二次调用（兄弟节点）
+TOOL_USE: Bash echo done
+TOOL_RET: done
+TOOL_RET: skill complete
+```
+
 **验证点：**
 - `nestedCalls` 中至少有两个 `type: 'skill'` 节点
 - 第二个 `weather-checker` 的 `nestedCalls` 中有 `command` 包含 `'done'` 的 Bash
 
 **实际意义：** 验证 relay 能区分同一 skill 的多次调用（每次都有独立的 `toolUseId`），并且 sibling 之间的嵌套归属正确。
-
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "sequential-skill",
-    "toolUseId": "01jx8mmmmm",
-    "startTime": 1746081600000,
-    "durationMs": 25000,
-    "nestedCalls": [
-      {
-        "type": "skill",
-        "name": "weather-checker",
-        "toolUseId": "01jx8nnnnn",
-        "startTime": 1746081601000,
-        "durationMs": 8000,
-        "nestedCalls": [
-          {
-            "type": "tool",
-            "name": "Bash",
-            "toolUseId": "01jx8ooooo",
-            "command": "echo 'Weather check: ' && date",
-            "durationMs": 100
-          }
-        ]
-      },
-      {
-        "type": "skill",
-        "name": "weather-checker",
-        "toolUseId": "01jx8ppppp",
-        "startTime": 1746081610000,
-        "durationMs": 10000,
-        "nestedCalls": [
-          {
-            "type": "tool",
-            "name": "Bash",
-            "toolUseId": "01jx8qqqqq",
-            "command": "echo done",
-            "durationMs": 50
-          }
-        ]
-      }
-    ]
-  }
-}
-```
 
 ---
 
@@ -355,6 +224,13 @@
 **命令：** `run weather-checker`
 
 **语义：** API 真实调用，有 token 消耗。
+
+**Console 输出：**
+
+```
+🤖 weather-checker 10000ms (inputTokens: 1200, cacheReadTokens: 9800)
+└── 🔧 Bash echo 'Weather check: ' && date +100ms
+```
 
 **验证点：**
 - `skillTree.usage` 存在
@@ -372,6 +248,14 @@
 
 **语义：** 父 skill 和子 skill 都有独立的 API 调用，各自消耗 token。
 
+**Console 输出：**
+
+```
+🤖 nested-test-skill 20000ms (inputTokens: 2100, cacheReadTokens: 18000)
+└── 🤖 weather-checker 12000ms (inputTokens: 1100, cacheReadTokens: 8900)
+    └── 🔧 Bash echo 'Weather check: ' && date +100ms
+```
+
 **验证点：**
 - 父 skill（root）有 `usage`，`inputTokens > 100`，`cacheReadTokens > 0`
 - 子 skill（`weather-checker`）也有 `usage`，且数值合理
@@ -386,42 +270,28 @@
 
 **语义：** 纯工具调用，不走任何 skill。
 
+**Console 输出：**
+
+```
+🤖 <no-skill> 5000ms
+├── 🔧 Bash ls -la /tmp +200ms
+└── 🔧 Read /tmp +300ms
+```
+
+**Transcript：**
+
+```
+TOOL_USE: Bash ls -la /tmp
+TOOL_RET: total 48 ...
+TOOL_USE: Read
+TOOL_RET: ...
+```
+
 **验证点：**
 - 生成一个 `skill: '<no-skill>'` 的根节点
 - `nestedCalls.length > 0` — 工具调用被正确挂在该兜底根下
 
 **实际意义：** 验证 relay 在无 skill 场景下有兜底处理，不会丢失工具调用数据。
-
-**示例输出：**
-
-```json
-{
-  "skillTree": {
-    "skill": "<no-skill>",
-    "toolUseId": "01jx8rrrrr",
-    "startTime": 1746081600000,
-    "durationMs": 5000,
-    "nestedCalls": [
-      {
-        "type": "tool",
-        "name": "Bash",
-        "toolUseId": "01jx8sssss",
-        "command": "ls -la /tmp",
-        "startTime": 1746081600100,
-        "durationMs": 200
-      },
-      {
-        "type": "tool",
-        "name": "Read",
-        "toolUseId": "01jx8ttttt",
-        "file": "/tmp",
-        "startTime": 1746081601000,
-        "durationMs": 300
-      }
-    ]
-  }
-}
-```
 
 ---
 
